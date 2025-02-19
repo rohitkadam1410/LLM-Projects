@@ -58,9 +58,10 @@ user_input = st.sidebar.text_area("Please share your dream destination details a
 
 # Button to submit the text
 if st.sidebar.button("Generate your itinerary"):
+    st.spinner("Generating the itinerary.....")
     if user_input:
         # Get the response from the LangFlow API
-        st.spinner("Generating the itinerary...")
+        
         response = get_langflow_response(user_input)
         
         # Display the response
