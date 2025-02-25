@@ -51,7 +51,7 @@ def get_langflow_response(text):
     return response.status_code
 
 # Streamlit UI
-st.sidebar.title("Instagram Post Creator")
+st.sidebar.title("Instagram Post Generator")
 
 # Text input
 user_input = st.sidebar.text_area("Enter Topic to generate post and image prompt for the post:")
