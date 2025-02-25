@@ -51,7 +51,7 @@ def get_langflow_response(text):
     return response.status_code
 
 # Streamlit UI
-st.sidebar.title("Your travel Buddy")
+st.sidebar.title("Travel Guide")
 
 # Text input
 user_input = st.sidebar.text_area("Please share your dream destination details and travel dates:")
