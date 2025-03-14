@@ -1,7 +1,6 @@
 import openai
 from transformers import DPRQuestionEncoder, DPRQuestionEncoderTokenizer, DPRContextEncoder, DPRContextEncoderTokenizer
 from transformers import pipeline
-import chromadb
 
 # Initialize the OpenAI API key
 openai.api_key = 'your_openai_api_key'
@@ -12,35 +11,27 @@ question_tokenizer = DPRQuestionEncoderTokenizer.from_pretrained('facebook/dpr-q
 context_encoder = DPRContextEncoder.from_pretrained('facebook/dpr-ctx_encoder-single-nq-base')
 context_tokenizer = DPRContextEncoderTokenizer.from_pretrained('facebook/dpr-ctx_encoder-single-nq-base')
 
-# Initialize ChromaDB
-client = chromadb.Client()
-collection = client.create_collection("document_embeddings")
-
-# Function to store document embeddings in ChromaDB
-def store_embeddings(documents):
-    for doc in documents:
-        inputs = context_tokenizer(doc, return_tensors='pt')
-        embedding = context_encoder(**inputs).pooler_output.detach().numpy()
-        collection.add(doc, embedding)
+# Initialize the retrieval pipeline
+retriever = pipeline('retrieval', model=question_encoder, tokenizer=question_tokenizer)
 
 # Function to retrieve relevant contexts
 def retrieve_contexts(question, documents):
     inputs = question_tokenizer(question, return_tensors='pt')
-    question_embedding = question_encoder(**inputs).pooler_output.detach().numpy()
-    results = collection.query(question_embedding, top_k=5)
-    ranked_docs = [result['document'] for result in results]
-    return ranked_docs
+    question_embedding = question_encoder(**inputs).pooler_output
+    context_embeddings = [context_encoder(**context_tokenizer(doc, return_tensors='pt')).pooler_output for doc in documents]
+    scores = [float((question_embedding @ context_embedding.T).squeeze()) for context_embedding in context_embeddings]
+    ranked_docs = [doc for _, doc in sorted(zip(scores, documents), reverse=True)]
+    return ranked_docs[:5]  # Return top 5 contexts
 
-# Function to generate answer using OpenAI GPT-3
+# Function to generate answer using GPT-4.0 mini model
 def generate_answer(question, contexts):
     context_str = "\n".join(contexts)
     prompt = f"Question: {question}\n\nContext:\n{context_str}\n\nAnswer:"
-    response = openai.Completion.create(engine="davinci", prompt=prompt, max_tokens=150)
+    response = openai.Completion.create(engine="gpt-4.0-mini", prompt=prompt, max_tokens=150)
     return response.choices[0].text.strip()
 
 # Main function to handle question answering
 def answer_question(question, documents):
-    store_embeddings(documents)
     contexts = retrieve_contexts(question, documents)
     answer = generate_answer(question, contexts)
     return answer
