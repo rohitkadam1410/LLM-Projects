@@ -43,6 +43,7 @@ def tailor_resume(docx_path: str, job_description: str) -> str:
     - Highlight relevant experience.
     - Maintain truthfulness (do not invent facts).
     - Return the result as plain text with clear section headers.
+    - Strictly mentain the previous expericence as same  just add relavat content to the new job description.
     """
     
     response = client.chat.completions.create(
