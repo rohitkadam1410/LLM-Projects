@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+python-multipart
+pdf2docx
+openai
+python-docx
+docx2pdf
+python-dotenv
