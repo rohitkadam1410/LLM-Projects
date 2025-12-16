@@ -31,32 +31,44 @@ def apply_edits_to_docx(docx_path: str, edits: List[Dict[str, str]], output_path
             
         for para in doc.paragraphs:
             if target in para.text:
-                # Capture font attributes from the first run of the paragraph
-                # This helps preserve "manual" font settings not tied to the style
-                current_font_name = None
-                current_font_size = None
-                if para.runs:
-                    current_font_name = para.runs[0].font.name
-                    current_font_size = para.runs[0].font.size
-
+                replaced_in_run = False
+                
+                # Default Logic: Try to find target in a single run first
+                # This preserves other runs (like bullet symbols)
                 if action == "replace":
-                    # Replace the text
-                    # Note: assign to para.text consolidates runs into a single run
+                    for run in para.runs:
+                        if target in run.text:
+                            run.text = run.text.replace(target, content)
+                            replaced_in_run = True
+                            break
+                
+                # Fallback: If target spans runs or check failed
+                if not replaced_in_run and action == "replace":
+                    # Capture font from the "main" run (likely not the bullet)
+                    keep_font_name = None
+                    keep_font_size = None
+                    
+                    if para.runs:
+                        # Heuristic: If 1st run is short (symbol?), take 2nd run's font
+                        # This assumes PDF conversion: Run1=Bullet, Run2=Text
+                        ref_run = para.runs[0]
+                        if len(para.runs) > 1 and len(ref_run.text.strip()) <= 1:
+                             ref_run = para.runs[1]
+                             
+                        keep_font_name = ref_run.font.name
+                        keep_font_size = ref_run.font.size
+
                     para.text = para.text.replace(target, content)
                     
-                    # Re-apply font attributes to the new run(s)
                     for run in para.runs:
-                        if current_font_name:
-                            run.font.name = current_font_name
-                        if current_font_size:
-                            run.font.size = current_font_size
+                        if keep_font_name:
+                            run.font.name = keep_font_name
+                        if keep_font_size:
+                            run.font.size = keep_font_size
                             
                 elif action == "append":
-                     # For append, we want to try to insert logic, but for simplicity/safety
-                     # we often rewrite. But if we must append:
-                     # This logic is less robust in python-docx without careful XML manipulation.
-                     # We will fallback to the 'replace' logic which is what the prompt usually guides towards anyway.
-                     pass
+                     # Append logic remains simple for now
+                     para.add_run(" " + content)
                      
                 break 
 

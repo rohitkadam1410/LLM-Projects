@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 
 interface EditSuggestion {
   target_text: string;
@@ -19,6 +19,8 @@ export default function Home() {
   // New state for analysis flow
   const [analysisResults, setAnalysisResults] = useState<EditSuggestion[] | null>(null);
   const [uploadedFilename, setUploadedFilename] = useState('');
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
@@ -136,6 +138,7 @@ export default function Home() {
 
               <div className="relative group">
                 <input
+                  ref={fileInputRef}
                   type="file"
                   accept=".pdf"
                   onChange={handleFileChange}
@@ -277,6 +280,9 @@ export default function Home() {
                       setStatus('');
                       setAnalysisResults(null);
                       setUploadedFilename('');
+                      if (fileInputRef.current) {
+                        fileInputRef.current.value = '';
+                      }
                     }}
                     className="flex-1 max-w-xs bg-white border border-slate-200 text-slate-600 font-bold py-4 px-6 rounded-xl hover:bg-slate-50 transition-colors"
                   >
