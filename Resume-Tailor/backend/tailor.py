@@ -68,7 +68,7 @@ def apply_edits_to_docx(docx_path: str, edits: List[Dict[str, str]], output_path
     
     doc.save(output_path)
 
-def tailor_resume(docx_path: str, job_description: str) -> str:
+def analyze_gaps(docx_path: str, job_description: str) -> List[Dict[str, str]]:
     resume_text = extract_text_from_docx(docx_path)
     
     client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
@@ -93,6 +93,7 @@ def tailor_resume(docx_path: str, job_description: str) -> str:
     - "target_text": The EXACT text snippet from the original resume you want to change. It must be unique enough to find.
     - "new_content": The replacement text.
     - "action": "replace" (currently only "replace" is supported reliably, so if you want to add something, find a relevant line and provide a rewrite of that line including the new info).
+    - "rationale": A brief explanation of why this change is suggested (e.g. "Added keyword X from JD").
     
     Example:
     {{
@@ -100,7 +101,8 @@ def tailor_resume(docx_path: str, job_description: str) -> str:
             {{
                 "target_text": "Managed a team of 5 developers.",
                 "new_content": "Led a cross-functional team of 5 developers, implementing Agile methodologies to improve delivery speed by 20%.",
-                "action": "replace"
+                "action": "replace",
+                "rationale": "Emphasized Agile leadership as requested in JD."
             }}
         ]
     }}
@@ -125,9 +127,11 @@ def tailor_resume(docx_path: str, job_description: str) -> str:
     except json.JSONDecodeError:
         print("Failed to decode JSON from LLM")
         edits = []
-    
+        
+    return edits
+
+def generate_tailored_resume(docx_path: str, edits: List[Dict[str, str]]) -> str:
     output_path = docx_path.replace(".docx", "_tailored.docx")
     apply_edits_to_docx(docx_path, edits, output_path)
-    
     return output_path
 

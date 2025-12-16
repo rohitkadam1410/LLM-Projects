@@ -13,7 +13,8 @@ load_dotenv("d:\\projects\\LLM-Projects\\.env")
 # from .pdf_handler import pdf_to_docx, docx_to_pdf
 # from .tailor import tailor_resume
 from pdf_handler import pdf_to_docx, docx_to_pdf
-from tailor import tailor_resume
+from tailor import analyze_gaps, generate_tailored_resume
+from pydantic import BaseModel
 
 app = FastAPI()
 
@@ -34,34 +35,71 @@ async def download_file(filename: str):
         return FileResponse(file_path, media_type='application/pdf', filename=filename)
     return {"error": "File not found"}
 
-@app.post("/upload")
-async def upload_files(resume: UploadFile = File(...), job_description: str = Form(...)):
+from typing import List, Dict
+
+class EditsRequest(BaseModel):
+    filename: str
+    edits: List[Dict[str, str]]
+
+@app.post("/analyze")
+async def analyze_resume(resume: UploadFile = File(...), job_description: str = Form(...)):
     # Save uploaded resume temporarily
     temp_pdf_path = f"temp_{resume.filename}"
     with open(temp_pdf_path, "wb") as buffer:
         buffer.write(await resume.read())
     
-    # 1. Convert PDF to customizable format (DOCX or Text)
-    # For high fidelity, we try DOCX
+    # 1. Convert PDF to customizable format (DOCX)
     docx_path = pdf_to_docx(temp_pdf_path)
     
-    # 2. Tailor content using LLM
-    # This function will read the docx, replace content, and save a new docx
-    tailored_docx_path = tailor_resume(docx_path, job_description)
+    # 2. Analyze gaps using LLM
+    edits = analyze_gaps(docx_path, job_description)
     
-    # 3. Convert back to PDF
+    # We return the filename so the frontend can send it back for the next step
+    # Ideally, we should use a session ID or a more robust temp file management system
+    # For now, we rely on the filename being uniqueish enough or trusted context
+    return {
+        "message": "Analysis complete", 
+        "analysis": edits, 
+        "filename": resume.filename,
+        "temp_docx_path": docx_path # Need this for next step? Or reconstruct it? 
+        # Reconstructing: "temp_" + filename -> pdf -> docx. 
+        # Better to return the docx path or just use the logic to find it.
+        # Let's return the docx_path to be explicit, but verify security in real app.
+    }
+
+@app.post("/generate")
+async def generate_resume_endpoint(request: EditsRequest):
+    # Reconstruct paths
+    # We assume the file is still there. In a real app, use S3 or DB.
+    # The analyze step created "temp_filename.pdf" and then "temp_filename.docx"
+    # Wait, pdf_to_docx creates a docx file.
+    
+    # We need the docx path.
+    # Let's trust the frontend ensures the flow is sequential and fast enough that temp files exist.
+    # Security Warning: This allows passing any path. 
+    # For this personal project, we will sanitize or just re-derive.
+    
+    original_filename = request.filename
+    temp_pdf_path = f"temp_{original_filename}"
+    docx_path = temp_pdf_path.replace(".pdf", ".docx")
+    
+    if not os.path.exists(docx_path):
+        return {"error": "Session expired or file not found. Please upload again."}
+        
+    # 3. Apply edits
+    tailored_docx_path = generate_tailored_resume(docx_path, request.edits)
+    
+    # 4. Convert back to PDF
     tailored_pdf_path = docx_to_pdf(tailored_docx_path)
     
-    # Clean up
-    if os.path.exists(temp_pdf_path):
-        os.remove(temp_pdf_path)
-    if os.path.exists(docx_path):
-        os.remove(docx_path)
-        
     # extract just the filename for the download url
     filename = os.path.basename(tailored_pdf_path)
     
-    return {"message": "Resume tailored successfully", "pdf_path": tailored_pdf_path, "download_url": f"http://localhost:8000/download/{filename}"}
+    return {
+        "message": "Resume tailored successfully", 
+        "pdf_path": tailored_pdf_path, 
+        "download_url": f"http://localhost:8000/download/{filename}"
+    }
 
 
 
