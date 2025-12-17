@@ -11,6 +11,7 @@ interface EditSuggestion {
 
 interface SectionAnalysis {
   section_name: string;
+  original_text?: string;
   gaps: string[];
   edits: EditSuggestion[];
 }
@@ -253,37 +254,72 @@ export default function Home() {
                         )}
 
                         {/* Edits Display */}
-                        <div className="space-y-4">
-                          {section.edits.length === 0 ? (
-                            <p className="text-sm text-slate-500 italic">No specific text edits suggested for this section.</p>
-                          ) : (
-                            section.edits.map((edit, editIdx) => (
-                              <div key={editIdx} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                                {edit.rationale && (
-                                  <div className="mb-3">
-                                    <span className="text-xs font-bold uppercase text-indigo-500 tracking-wide">Rationale</span>
-                                    <p className="text-sm text-slate-600 italic mt-1">{edit.rationale}</p>
-                                  </div>
-                                )}
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                  <div>
-                                    <span className="text-xs font-bold uppercase text-slate-400 tracking-wide">Original Text</span>
-                                    <div className="p-3 bg-red-50 rounded-lg border border-red-100 text-sm text-slate-600 mt-1 whitespace-pre-wrap">
-                                      {edit.target_text}
-                                    </div>
-                                  </div>
-                                  <div>
-                                    <span className="text-xs font-bold uppercase text-green-600 tracking-wide">Suggested Text (Editable)</span>
+                        {/* Inline Text Review */}
+                        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm text-sm leading-relaxed text-slate-700 whitespace-pre-wrap font-sans">
+                          {(() => {
+                            if (!section.original_text) {
+                              return section.edits.length === 0 ?
+                                <p className="italic text-slate-400">No edits suggested.</p> :
+                                section.edits.map((edit, editIdx) => (
+                                  <div key={editIdx} className="mb-4 border-b pb-4 last:border-0">
+                                    <div className="line-through decoration-red-400 decoration-2 opacity-60 text-slate-500 mb-1">{edit.target_text}</div>
                                     <textarea
-                                      className="w-full p-3 bg-green-50 rounded-lg border border-green-200 text-sm text-slate-800 mt-1 focus:ring-2 focus:ring-green-500/20 outline-none min-h-[100px]"
+                                      className="w-full p-2 bg-green-50 border border-green-200 rounded text-green-800 text-sm focus:ring-2 focus:ring-green-500/20 outline-none"
                                       value={edit.new_content}
                                       onChange={(e) => handleUpdateSuggestion(sectionIdx, editIdx, e.target.value)}
                                     />
                                   </div>
-                                </div>
-                              </div>
-                            ))
-                          )}
+                                ));
+                            }
+
+                            const text = section.original_text;
+                            const elements = [];
+                            let lastIndex = 0;
+
+                            // Find edits positions
+                            const sortedEdits = [...section.edits].map((e, i) => {
+                              const pos = text.indexOf(e.target_text);
+                              return { ...e, origIdx: i, pos };
+                            }).filter(e => e.pos !== -1).sort((a, b) => a.pos - b.pos);
+
+                            // Filter overlapping edits
+                            let validEdits = [];
+                            let currentCoverageLimit = -1;
+                            for (const edit of sortedEdits) {
+                              if (edit.pos >= currentCoverageLimit) {
+                                validEdits.push(edit);
+                                currentCoverageLimit = edit.pos + edit.target_text.length;
+                              }
+                            }
+
+                            validEdits.forEach((edit) => {
+                              if (edit.pos > lastIndex) {
+                                elements.push(<span key={`pre-${edit.origIdx}`}>{text.substring(lastIndex, edit.pos)}</span>);
+                              }
+
+                              elements.push(
+                                <span key={`edit-${edit.origIdx}`} className="mx-1 inline-block align-top">
+                                  <span className="line-through decoration-red-400 decoration-2 opacity-60 text-slate-500 mr-1 bg-red-50/50 px-1 rounded">
+                                    {edit.target_text}
+                                  </span>
+                                  <textarea
+                                    className="inline-block min-w-[300px] w-full max-w-full p-2 bg-green-50 border border-green-200 text-green-800 rounded text-sm mt-1 focus:ring-2 focus:ring-green-500/20 outline-none resize-y"
+                                    rows={Math.max(2, Math.ceil(edit.new_content.length / 60))}
+                                    value={edit.new_content}
+                                    onChange={(e) => handleUpdateSuggestion(sectionIdx, edit.origIdx, e.target.value)}
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                </span>
+                              );
+                              lastIndex = edit.pos + edit.target_text.length;
+                            });
+
+                            if (lastIndex < text.length) {
+                              elements.push(<span key="end">{text.substring(lastIndex)}</span>);
+                            }
+
+                            return elements;
+                          })()}
                         </div>
                       </div>
                     ))}

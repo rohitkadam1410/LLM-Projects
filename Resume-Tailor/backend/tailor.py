@@ -143,6 +143,7 @@ def analyze_gaps(docx_path: str, job_description: str) -> Dict:
         "sections": [
             {{
                 "section_name": "<name>",
+                "original_text": "<full original text of this section>",
                 "gaps": ["<gap1>", ...],
                 "edits": [
                     {{
