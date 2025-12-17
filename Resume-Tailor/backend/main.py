@@ -52,14 +52,16 @@ async def analyze_resume(resume: UploadFile = File(...), job_description: str = 
     docx_path = pdf_to_docx(temp_pdf_path)
     
     # 2. Analyze gaps using LLM
-    sections = analyze_gaps(docx_path, job_description)
+    analysis_result = analyze_gaps(docx_path, job_description)
     
     # We return the filename so the frontend can send it back for the next step
     # Ideally, we should use a session ID or a more robust temp file management system
     # For now, we rely on the filename being uniqueish enough or trusted context
     return {
         "message": "Analysis complete", 
-        "sections": sections, 
+        "sections": analysis_result.get("sections", []),
+        "initial_score": analysis_result.get("initial_score", 0),
+        "projected_score": analysis_result.get("projected_score", 0),
         "filename": resume.filename,
         "temp_docx_path": docx_path 
     }

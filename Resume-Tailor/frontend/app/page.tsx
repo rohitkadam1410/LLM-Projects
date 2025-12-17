@@ -25,6 +25,8 @@ export default function Home() {
   // New state for analysis flow
   const [sections, setSections] = useState<SectionAnalysis[] | null>(null);
   const [uploadedFilename, setUploadedFilename] = useState('');
+  const [initialScore, setInitialScore] = useState(0);
+  const [projectedScore, setProjectedScore] = useState(0);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -56,6 +58,8 @@ export default function Home() {
       if (data.sections) {
         setSections(data.sections);
         setUploadedFilename(data.filename);
+        setInitialScore(data.initial_score || 0);
+        setProjectedScore(data.projected_score || 0);
         setStatus('Analysis complete! Please review the suggestions below.');
       } else {
         setStatus('Something went wrong during analysis. Please try again.');
@@ -108,6 +112,13 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Helper for Score Color
+  const getScoreColor = (score: number) => {
+    if (score >= 80) return 'text-green-600 bg-green-100 border-green-200';
+    if (score >= 50) return 'text-yellow-600 bg-yellow-100 border-yellow-200';
+    return 'text-red-600 bg-red-100 border-red-200';
   };
 
   return (
@@ -210,6 +221,31 @@ export default function Home() {
             {/* Step 3: Review & Edit */}
             {sections && !downloadUrl && (
               <div className="pt-4 space-y-8 animate-fade-in-up">
+                {/* Scorecard */}
+                <div className="bg-slate-900 rounded-2xl p-6 text-white shadow-xl flex flex-col md:flex-row items-center justify-between">
+                  <div className="mb-4 md:mb-0">
+                    <h3 className="text-xl font-bold text-slate-100">Resume Scorecard</h3>
+                    <p className="text-slate-400 text-sm">Based on Job Description Analysis</p>
+                  </div>
+                  <div className="flex space-x-8">
+                    <div className="text-center">
+                      <div className={`w-20 h-20 rounded-full border-4 flex items-center justify-center text-2xl font-bold bg-white/10 ${getScoreColor(initialScore).replace('bg-', 'border-').split(' ')[2].replace('border-', 'border-')}`}>
+                        {initialScore}
+                      </div>
+                      <p className="mt-2 text-sm font-medium text-slate-300">Initial</p>
+                    </div>
+                    <div className="flex items-center text-slate-500">
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
+                    </div>
+                    <div className="text-center">
+                      <div className={`w-20 h-20 rounded-full border-4 flex items-center justify-center text-2xl font-bold bg-white/10 ${getScoreColor(projectedScore).replace('bg-', 'border-').split(' ')[2].replace('border-', 'border-')}`}>
+                        {projectedScore}
+                      </div>
+                      <p className="mt-2 text-sm font-medium text-green-400">Projected</p>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="flex items-center">
                   <span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold mr-3">3</span>
                   <label className="text-lg font-semibold text-slate-800">Review Analysis & Suggestions</label>

@@ -21,6 +21,11 @@ class SectionAnalysis(BaseModel):
     gaps: List[str]
     edits: List[Edit]
 
+class AnalysisResult(BaseModel):
+    sections: List[SectionAnalysis]
+    initial_score: int
+    projected_score: int
+
 def extract_text_from_docx(docx_path: str) -> str:
     doc = Document(docx_path)
     full_text = []
@@ -29,109 +34,127 @@ def extract_text_from_docx(docx_path: str) -> str:
             full_text.append(para.text)
     return '\n'.join(full_text)
 
+def safe_replace_text(paragraph, target: str, replacement: str):
+    """
+    Attempts to replace 'target' with 'replacement' in the paragraph while preserving formatting.
+    Strategy:
+    1. Check if 'target' exists in a single run. If so, replace it there.
+    2. If not, fallback to paragraph.text replacement but attempt to copy font from the first run of the target.
+    """
+    if target not in paragraph.text:
+        return
+
+    # 1. Try single run replacement
+    for run in paragraph.runs:
+        if target in run.text:
+            run.text = run.text.replace(target, replacement)
+            return
+
+    # 2. Fallback: Replace whole paragraph text but try to keep style
+    # We will clear the paragraph and add a new run with the replacement text,
+    # applying the font/style from the first run (if any).
+    # NOTE: This replaces the ENTIRE paragraph content if we do this, which might be too aggressive 
+    # if the target is just a SUBSTRING. 
+    
+    # Better Fallback for Substrings spanning runs:
+    # Just do a naive replace on text. This destroys run boundaries for that paragraph.
+    # To mitigate "lost font", we capture the first run's font.
+    
+    style_run = paragraph.runs[0] if paragraph.runs else None
+    font_name = style_run.font.name if style_run else None
+    font_size = style_run.font.size if style_run else None
+    bold = style_run.bold if style_run else None
+    italic = style_run.italic if style_run else None
+    color = style_run.font.color.rgb if style_run and style_run.font.color else None
+
+    # This operation clears existing runs and creates new ones usually? 
+    # Actually python-docx `para.text = ...` preserves the PARAGRAPH style but resets character formatting.
+    paragraph.text = paragraph.text.replace(target, replacement)
+    
+    # Re-apply font to all runs (usually just one now)
+    for run in paragraph.runs:
+        if font_name: run.font.name = font_name
+        if font_size: run.font.size = font_size
+        if bold is not None: run.bold = bold
+        if italic is not None: run.italic = italic
+        if color: run.font.color.rgb = color
+
+
 def apply_edits_to_docx(docx_path: str, edits: List[Dict[str, str]], output_path: str):
     # Copy original to output
     shutil.copy2(docx_path, output_path)
     doc = Document(output_path)
     
     for edit in edits:
-        # handle both dict and Pydantic object (if passed internally)
-        if isinstance(edit, dict):
-            action = edit.get("action")
-            target = edit.get("target_text")
-            content = edit.get("new_content")
-        else:
-            action = edit.action
-            target = edit.target_text
-            content = edit.new_content
+        if isinstance(edit, (dict, object)): 
+             # Handle both pydantic and dict
+             if isinstance(edit, dict):
+                action = edit.get("action")
+                target = edit.get("target_text")
+                content = edit.get("new_content")
+             else:
+                action = edit.action
+                target = edit.target_text
+                content = edit.new_content
         
         if not target or not content:
             continue
             
         for para in doc.paragraphs:
             if target in para.text:
-                replaced_in_run = False
-                
-                # Default Logic: Try to find target in a single run first
-                # This preserves other runs (like bullet symbols)
                 if action == "replace":
-                    for run in para.runs:
-                        if target in run.text:
-                            run.text = run.text.replace(target, content)
-                            replaced_in_run = True
-                            break
-                
-                # Fallback: If target spans runs or check failed
-                if not replaced_in_run and action == "replace":
-                    # Capture font from the "main" run (likely not the bullet)
-                    keep_font_name = None
-                    keep_font_size = None
-                    
-                    if para.runs:
-                        # Heuristic: If 1st run is short (symbol?), take 2nd run's font
-                        # This assumes PDF conversion: Run1=Bullet, Run2=Text
-                        ref_run = para.runs[0]
-                        if len(para.runs) > 1 and len(ref_run.text.strip()) <= 1:
-                             ref_run = para.runs[1]
-                             
-                        keep_font_name = ref_run.font.name
-                        keep_font_size = ref_run.font.size
-
-                    para.text = para.text.replace(target, content)
-                    
-                    for run in para.runs:
-                        if keep_font_name:
-                            run.font.name = keep_font_name
-                        if keep_font_size:
-                            run.font.size = keep_font_size
-                            
+                    safe_replace_text(para, target, content)
                 elif action == "append":
-                     # Append logic remains simple for now
                      para.add_run(" " + content)
-                     
                 break 
 
     doc.save(output_path)
 
-def analyze_gaps(docx_path: str, job_description: str) -> List[Dict]:
+def analyze_gaps(docx_path: str, job_description: str) -> Dict:
     resume_text = extract_text_from_docx(docx_path)
     
     client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
-    # Detailed Prompt for Structure Preservation & ATS Enhancement
     prompt = f"""
-    You are an expert Resume Strategist and ATS Optimizer.
-    You have the content of a candidate's resume and a target Job Description (JD).
+    You are an expert Resume Strategist.
     
     GOAL: 
-    Tailor the resume to significantly increase the chances of being shortlisted by ATS systems and recruiters.
+    Tailor the resume to significantly increase the chances of being shortlisted.
     Analyze the resume SECTION BY SECTION.
+    Prioritize "Professional Summary", "Experience", and "Projects".
     
     CONSTRAINTS:
-    1. STRICTLY PRESERVE the original file structure. Do not merge sections or change headers.
+    1. STRICTLY PRESERVE the original file structure. 
     2. Suggest specific text replacements.
     
+    SCORING:
+    - Assess the initial resume against the JD (0-100).
+    - Estimate the projected score after your edits (0-100).
+    
     STRATEGIES:
-    1. **Gap Analysis**: Compare the resume against the JD to find missing keywords (hard skills, soft skills, tools) for EACH section.
-    2. **Experience Enhancement**: Rewrite existing bullet points to:
-       - Include missing JD keywords naturally.
-       - Use strong action verbs.
-       - Quantify results where possible.
-    3. **Projects Enhancement**: Start projects with strong impact statements using JD terminology.
-    4. **Font/Style**: The system will handle font preservation, but you must provide the text content.
+    1. **Gap Analysis**: Find missing keywords for EACH section.
+    2. **Experience Enhancement**: Rewrite bullets to include keywords and simple quantification.
     
     OUTPUT FORMAT:
-    Return a JSON object with a list of "sections".
-    Each section object must have:
-    - "section_name": e.g. "Summary", "Experience", "Projects", "Education", "Skills"
-    - "gaps": A list of STRINGS describing missing keywords or concepts in this section based on the JD.
-    - "edits": A list of edit objects, where each edit has:
-        - "target_text": The EXACT text snippet from the original resume to be replaced. MUST be unique.
-        - "new_content": The improved version of that text.
-        - "action": "replace" 
-        - "rationale": E.g. "Integrated keyword 'Python' and quantified impact to boost ATS score."
-    
-    Provide as many edits as necessary to fully optimize the resume. Don't be shy—rewrite weak bullets completely if needed.
+    Return a JSON object:
+    {{
+        "initial_score": <int>,
+        "projected_score": <int>,
+        "sections": [
+            {{
+                "section_name": "<name>",
+                "gaps": ["<gap1>", ...],
+                "edits": [
+                    {{
+                        "target_text": "<exact match>",
+                        "new_content": "<replacement>",
+                        "action": "replace",
+                        "rationale": "<reason>"
+                    }}
+                ]
+            }}
+        ]
+    }}
     
     Job Description:
     {job_description}
@@ -149,19 +172,26 @@ def analyze_gaps(docx_path: str, job_description: str) -> List[Dict]:
     
     try:
         result = json.loads(response.choices[0].message.content)
-        sections = result.get("sections", [])
+        # Return the whole result dict (matches AnalysisResult structure loosely)
+        return result
     except json.JSONDecodeError:
         print("Failed to decode JSON from LLM")
-        sections = []
-        
-    return sections
+        return {"sections": [], "initial_score": 0, "projected_score": 0}
 
 def generate_tailored_resume(docx_path: str, sections: List[Dict]) -> str:
     # Flatten edits from all sections
     all_edits = []
-    for section in sections:
-        if "edits" in section:
-            all_edits.extend(section["edits"])
+    
+    # Handle if sections is actually the AnalysisResult dict or list
+    iterable_sections = sections if isinstance(sections, list) else sections.get("sections", [])
+    
+    for section in iterable_sections:
+        # Handle dict vs object
+        if isinstance(section, dict):
+            if "edits" in section:
+                all_edits.extend(section["edits"])
+        else:
+             all_edits.extend(section.edits)
             
     output_path = docx_path.replace(".docx", "_tailored.docx")
     apply_edits_to_docx(docx_path, all_edits, output_path)
