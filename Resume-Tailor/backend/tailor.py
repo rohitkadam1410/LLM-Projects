@@ -172,11 +172,71 @@ def analyze_gaps(docx_path: str, job_description: str) -> Dict:
     
     try:
         result = json.loads(response.choices[0].message.content)
-        # Return the whole result dict (matches AnalysisResult structure loosely)
-        return result
     except json.JSONDecodeError:
         print("Failed to decode JSON from LLM")
-        return {"sections": [], "initial_score": 0, "projected_score": 0}
+        result = {"sections": []}
+
+    # 2. Separate Robust Scoring Step
+    try:
+        # Summarize proposed changes for the scorer
+        changes_summary = []
+        if "sections" in result:
+            for section in result["sections"]:
+                name = section.get("section_name", "Unknown")
+                gaps = section.get("gaps", [])
+                edits = section.get("edits", [])
+                changes_summary.append(f"Section {name}: Found {len(gaps)} gaps ({', '.join(gaps[:3])}...). Suggested {len(edits)} edits.")
+        
+        changes_text = "\n".join(changes_summary)
+        scores = calculate_scores(resume_text, job_description, changes_text)
+        result["initial_score"] = scores.get("initial_score", 0)
+        result["projected_score"] = scores.get("projected_score", 0)
+        result["score_reasoning"] = scores.get("reasoning", "")
+        
+    except Exception as e:
+        print(f"Scoring failed: {e}")
+        result["initial_score"] = 0
+        result["projected_score"] = 0
+
+    return result
+
+def calculate_scores(resume_text: str, job_description: str, changes_summary: str) -> Dict:
+    client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+    prompt = f"""
+    You are a Hiring Manager and ATS Specialist.
+    
+    JOB DESCRIPTION:
+    {job_description[:2000]}...
+    
+    CANDIDATE RESUME CONTENT:
+    {resume_text[:3000]}...
+    
+    PROPOSED IMPROVEMENTS TO RESUME:
+    {changes_summary}
+    
+    TASK:
+    1. Evaluate the *original* resume's match to the JD on a scale of 0-100 (ATS Score).
+    2. Estimate the match score (0-100) assuming the proposed improvements are applied effectively.
+    
+    OUTPUT JSON:
+    {{
+        "initial_score": <int>,
+        "projected_score": <int>,
+        "reasoning": "<short explanation>"
+    }}
+    """
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1,
+            response_format={ "type": "json_object" }
+        )
+        return json.loads(response.choices[0].message.content)
+    except Exception as e:
+        print(f"Error in calculate_scores: {e}")
+        return {"initial_score": 0, "projected_score": 0}
 
 def generate_tailored_resume(docx_path: str, sections: List[Dict]) -> str:
     # Flatten edits from all sections
