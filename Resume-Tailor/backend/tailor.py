@@ -8,6 +8,19 @@ from typing import List, Dict
 # Ensure API key is set
 # openai.api_key = os.environ.get("OPENAI_API_KEY")
 
+from pydantic import BaseModel
+
+class Edit(BaseModel):
+    target_text: str
+    new_content: str
+    action: str
+    rationale: str
+
+class SectionAnalysis(BaseModel):
+    section_name: str
+    gaps: List[str]
+    edits: List[Edit]
+
 def extract_text_from_docx(docx_path: str) -> str:
     doc = Document(docx_path)
     full_text = []
@@ -22,9 +35,15 @@ def apply_edits_to_docx(docx_path: str, edits: List[Dict[str, str]], output_path
     doc = Document(output_path)
     
     for edit in edits:
-        action = edit.get("action")
-        target = edit.get("target_text")
-        content = edit.get("new_content")
+        # handle both dict and Pydantic object (if passed internally)
+        if isinstance(edit, dict):
+            action = edit.get("action")
+            target = edit.get("target_text")
+            content = edit.get("new_content")
+        else:
+            action = edit.action
+            target = edit.target_text
+            content = edit.new_content
         
         if not target or not content:
             continue
@@ -74,7 +93,7 @@ def apply_edits_to_docx(docx_path: str, edits: List[Dict[str, str]], output_path
 
     doc.save(output_path)
 
-def analyze_gaps(docx_path: str, job_description: str) -> List[Dict[str, str]]:
+def analyze_gaps(docx_path: str, job_description: str) -> List[Dict]:
     resume_text = extract_text_from_docx(docx_path)
     
     client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
@@ -85,29 +104,32 @@ def analyze_gaps(docx_path: str, job_description: str) -> List[Dict[str, str]]:
     You have the content of a candidate's resume and a target Job Description (JD).
     
     GOAL: 
-    tailor the resume to significantly increase the chances of being shortlisted by ATS systems and recruiters.
-    Focus heavily on the EXPERIENCE and PROJECTS sections.
+    Tailor the resume to significantly increase the chances of being shortlisted by ATS systems and recruiters.
+    Analyze the resume SECTION BY SECTION.
     
     CONSTRAINTS:
     1. STRICTLY PRESERVE the original file structure. Do not merge sections or change headers.
     2. Suggest specific text replacements.
     
     STRATEGIES:
-    1. **Gap Analysis**: Compare the resume against the JD to find missing keywords (hard skills, soft skills, tools).
+    1. **Gap Analysis**: Compare the resume against the JD to find missing keywords (hard skills, soft skills, tools) for EACH section.
     2. **Experience Enhancement**: Rewrite existing bullet points to:
        - Include missing JD keywords naturally.
        - Use strong action verbs.
-       - Quantify results where possible (even if you have to suggest a placeholder like "[X]%").
+       - Quantify results where possible.
     3. **Projects Enhancement**: Start projects with strong impact statements using JD terminology.
     4. **Font/Style**: The system will handle font preservation, but you must provide the text content.
     
     OUTPUT FORMAT:
-    Return a JSON object with a list of "edits".
-    Each edit must have:
-    - "target_text": The EXACT text snippet from the original resume to be replaced. MUST be unique.
-    - "new_content": The improved version of that text.
-    - "action": "replace" 
-    - "rationale": E.g. "Integrated keyword 'Python' and quantified impact to boost ATS score."
+    Return a JSON object with a list of "sections".
+    Each section object must have:
+    - "section_name": e.g. "Summary", "Experience", "Projects", "Education", "Skills"
+    - "gaps": A list of STRINGS describing missing keywords or concepts in this section based on the JD.
+    - "edits": A list of edit objects, where each edit has:
+        - "target_text": The EXACT text snippet from the original resume to be replaced. MUST be unique.
+        - "new_content": The improved version of that text.
+        - "action": "replace" 
+        - "rationale": E.g. "Integrated keyword 'Python' and quantified impact to boost ATS score."
     
     Provide as many edits as necessary to fully optimize the resume. Don't be shy—rewrite weak bullets completely if needed.
     
@@ -127,15 +149,21 @@ def analyze_gaps(docx_path: str, job_description: str) -> List[Dict[str, str]]:
     
     try:
         result = json.loads(response.choices[0].message.content)
-        edits = result.get("edits", [])
+        sections = result.get("sections", [])
     except json.JSONDecodeError:
         print("Failed to decode JSON from LLM")
-        edits = []
+        sections = []
         
-    return edits
+    return sections
 
-def generate_tailored_resume(docx_path: str, edits: List[Dict[str, str]]) -> str:
+def generate_tailored_resume(docx_path: str, sections: List[Dict]) -> str:
+    # Flatten edits from all sections
+    all_edits = []
+    for section in sections:
+        if "edits" in section:
+            all_edits.extend(section["edits"])
+            
     output_path = docx_path.replace(".docx", "_tailored.docx")
-    apply_edits_to_docx(docx_path, edits, output_path)
+    apply_edits_to_docx(docx_path, all_edits, output_path)
     return output_path
 

@@ -39,7 +39,7 @@ from typing import List, Dict
 
 class EditsRequest(BaseModel):
     filename: str
-    edits: List[Dict[str, str]]
+    sections: List[Dict]
 
 @app.post("/analyze")
 async def analyze_resume(resume: UploadFile = File(...), job_description: str = Form(...)):
@@ -52,19 +52,16 @@ async def analyze_resume(resume: UploadFile = File(...), job_description: str = 
     docx_path = pdf_to_docx(temp_pdf_path)
     
     # 2. Analyze gaps using LLM
-    edits = analyze_gaps(docx_path, job_description)
+    sections = analyze_gaps(docx_path, job_description)
     
     # We return the filename so the frontend can send it back for the next step
     # Ideally, we should use a session ID or a more robust temp file management system
     # For now, we rely on the filename being uniqueish enough or trusted context
     return {
         "message": "Analysis complete", 
-        "analysis": edits, 
+        "sections": sections, 
         "filename": resume.filename,
-        "temp_docx_path": docx_path # Need this for next step? Or reconstruct it? 
-        # Reconstructing: "temp_" + filename -> pdf -> docx. 
-        # Better to return the docx path or just use the logic to find it.
-        # Let's return the docx_path to be explicit, but verify security in real app.
+        "temp_docx_path": docx_path 
     }
 
 @app.post("/generate")
@@ -72,12 +69,9 @@ async def generate_resume_endpoint(request: EditsRequest):
     # Reconstruct paths
     # We assume the file is still there. In a real app, use S3 or DB.
     # The analyze step created "temp_filename.pdf" and then "temp_filename.docx"
-    # Wait, pdf_to_docx creates a docx file.
     
     # We need the docx path.
     # Let's trust the frontend ensures the flow is sequential and fast enough that temp files exist.
-    # Security Warning: This allows passing any path. 
-    # For this personal project, we will sanitize or just re-derive.
     
     original_filename = request.filename
     temp_pdf_path = f"temp_{original_filename}"
@@ -87,7 +81,7 @@ async def generate_resume_endpoint(request: EditsRequest):
         return {"error": "Session expired or file not found. Please upload again."}
         
     # 3. Apply edits
-    tailored_docx_path = generate_tailored_resume(docx_path, request.edits)
+    tailored_docx_path = generate_tailored_resume(docx_path, request.sections)
     
     # 4. Convert back to PDF
     tailored_pdf_path = docx_to_pdf(tailored_docx_path)

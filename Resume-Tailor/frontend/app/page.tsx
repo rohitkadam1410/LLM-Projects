@@ -9,6 +9,12 @@ interface EditSuggestion {
   rationale?: string;
 }
 
+interface SectionAnalysis {
+  section_name: string;
+  gaps: string[];
+  edits: EditSuggestion[];
+}
+
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [jobDescription, setJobDescription] = useState('');
@@ -17,7 +23,7 @@ export default function Home() {
   const [status, setStatus] = useState('');
 
   // New state for analysis flow
-  const [analysisResults, setAnalysisResults] = useState<EditSuggestion[] | null>(null);
+  const [sections, setSections] = useState<SectionAnalysis[] | null>(null);
   const [uploadedFilename, setUploadedFilename] = useState('');
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -34,7 +40,7 @@ export default function Home() {
     setIsLoading(true);
     setStatus('Uploading and Analyzing...');
     setDownloadUrl('');
-    setAnalysisResults(null);
+    setSections(null);
 
     const formData = new FormData();
     formData.append('resume', file);
@@ -47,8 +53,8 @@ export default function Home() {
       });
 
       const data = await response.json();
-      if (data.analysis) {
-        setAnalysisResults(data.analysis);
+      if (data.sections) {
+        setSections(data.sections);
         setUploadedFilename(data.filename);
         setStatus('Analysis complete! Please review the suggestions below.');
       } else {
@@ -63,15 +69,15 @@ export default function Home() {
     }
   };
 
-  const handleUpdateSuggestion = (index: number, newValue: string) => {
-    if (!analysisResults) return;
-    const newResults = [...analysisResults];
-    newResults[index].new_content = newValue;
-    setAnalysisResults(newResults);
+  const handleUpdateSuggestion = (sectionIndex: number, editIndex: number, newValue: string) => {
+    if (!sections) return;
+    const newSections = [...sections];
+    newSections[sectionIndex].edits[editIndex].new_content = newValue;
+    setSections(newSections);
   };
 
   const handleFinalGenerate = async () => {
-    if (!uploadedFilename || !analysisResults) return;
+    if (!uploadedFilename || !sections) return;
 
     setIsLoading(true);
     setStatus('Applying changes and generating PDF...');
@@ -84,7 +90,7 @@ export default function Home() {
         },
         body: JSON.stringify({
           filename: uploadedFilename,
-          edits: analysisResults
+          sections: sections
         }),
       });
 
@@ -92,7 +98,7 @@ export default function Home() {
       if (data.download_url) {
         setDownloadUrl(data.download_url);
         setStatus('Resume generated successfully!');
-        setAnalysisResults(null); // Hide the review section
+        setSections(null); // Hide the review section
       } else {
         setStatus('Something went wrong generating the PDF.');
       }
@@ -130,7 +136,7 @@ export default function Home() {
           <div className="p-8 md:p-10 space-y-8">
 
             {/* Step 1: Upload */}
-            <div className={`transition-all duration-300 ${isLoading || analysisResults || downloadUrl ? 'opacity-50 pointer-events-none' : ''}`}>
+            <div className={`transition-all duration-300 ${isLoading || sections || downloadUrl ? 'opacity-50 pointer-events-none' : ''}`}>
               <div className="flex items-center mb-4">
                 <span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold mr-3">1</span>
                 <label className="text-lg font-semibold text-slate-800">Upload Resume (PDF)</label>
@@ -163,7 +169,7 @@ export default function Home() {
             <hr className="border-slate-100" />
 
             {/* Step 2: Job Description */}
-            <div className={`transition-all duration-300 ${isLoading || analysisResults || downloadUrl ? 'opacity-50 pointer-events-none' : ''}`}>
+            <div className={`transition-all duration-300 ${isLoading || sections || downloadUrl ? 'opacity-50 pointer-events-none' : ''}`}>
               <div className="flex items-center mb-4">
                 <span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold mr-3">2</span>
                 <label className="text-lg font-semibold text-slate-800">Job Description</label>
@@ -177,7 +183,7 @@ export default function Home() {
             </div>
 
             {/* Action Area: Analyze */}
-            {!analysisResults && !downloadUrl && (
+            {!sections && !downloadUrl && (
               <div className="pt-4">
                 <button
                   onClick={handleAnalyze}
@@ -202,39 +208,66 @@ export default function Home() {
             )}
 
             {/* Step 3: Review & Edit */}
-            {analysisResults && !downloadUrl && (
-              <div className="pt-4 space-y-6 animate-fade-in-up">
-                <div className="flex items-center mb-4">
+            {sections && !downloadUrl && (
+              <div className="pt-4 space-y-8 animate-fade-in-up">
+                <div className="flex items-center">
                   <span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold mr-3">3</span>
-                  <label className="text-lg font-semibold text-slate-800">Review & Edit Suggestions</label>
+                  <label className="text-lg font-semibold text-slate-800">Review Analysis & Suggestions</label>
                 </div>
-                <p className="text-slate-600">Review the AI's suggestions below. You can edit the "Suggested Text" before proceeding.</p>
+                <p className="text-slate-600">Review the AI's analysis for each section. Check the identified gaps and edit the suggestions before regenerating.</p>
 
-                <div className="space-y-4">
-                  {analysisResults.map((edit, idx) => (
-                    <div key={idx} className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                      {edit.rationale && (
-                        <div className="mb-2">
-                          <span className="text-xs font-bold uppercase text-indigo-500 tracking-wide">Rationale</span>
-                          <p className="text-sm text-slate-600 italic">{edit.rationale}</p>
+                <div className="space-y-8">
+                  {sections.map((section, sectionIdx) => (
+                    <div key={sectionIdx} className="bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-sm">
+                      <h3 className="text-xl font-bold text-slate-800 mb-4 border-b border-slate-200 pb-2">{section.section_name}</h3>
+
+                      {/* Gaps Display */}
+                      {section.gaps && section.gaps.length > 0 && (
+                        <div className="mb-6 bg-orange-50 p-4 rounded-xl border border-orange-100">
+                          <h4 className="text-sm font-bold uppercase text-orange-600 tracking-wide mb-2 flex items-center">
+                            <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                            Identified Gaps
+                          </h4>
+                          <ul className="list-disc list-inside space-y-1 text-sm text-slate-700">
+                            {section.gaps.map((gap, i) => (
+                              <li key={i}>{gap}</li>
+                            ))}
+                          </ul>
                         </div>
                       )}
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <span className="text-xs font-bold uppercase text-slate-400 tracking-wide">Original Text</span>
-                          <div className="p-3 bg-white rounded-lg border border-red-100 text-sm text-slate-500 mt-1">
-                            {edit.target_text}
-                          </div>
-                        </div>
-                        <div>
-                          <span className="text-xs font-bold uppercase text-green-600 tracking-wide">Suggested Text (Editable)</span>
-                          <textarea
-                            className="w-full p-3 bg-white rounded-lg border border-green-200 text-sm text-slate-800 mt-1 focus:ring-2 focus:ring-green-500/20 outline-none"
-                            rows={4}
-                            value={edit.new_content}
-                            onChange={(e) => handleUpdateSuggestion(idx, e.target.value)}
-                          />
-                        </div>
+
+                      {/* Edits Display */}
+                      <div className="space-y-4">
+                        {section.edits.length === 0 ? (
+                          <p className="text-sm text-slate-500 italic">No specific text edits suggested for this section.</p>
+                        ) : (
+                          section.edits.map((edit, editIdx) => (
+                            <div key={editIdx} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+                              {edit.rationale && (
+                                <div className="mb-3">
+                                  <span className="text-xs font-bold uppercase text-indigo-500 tracking-wide">Rationale</span>
+                                  <p className="text-sm text-slate-600 italic mt-1">{edit.rationale}</p>
+                                </div>
+                              )}
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                  <span className="text-xs font-bold uppercase text-slate-400 tracking-wide">Original Text</span>
+                                  <div className="p-3 bg-red-50 rounded-lg border border-red-100 text-sm text-slate-600 mt-1 whitespace-pre-wrap">
+                                    {edit.target_text}
+                                  </div>
+                                </div>
+                                <div>
+                                  <span className="text-xs font-bold uppercase text-green-600 tracking-wide">Suggested Text (Editable)</span>
+                                  <textarea
+                                    className="w-full p-3 bg-green-50 rounded-lg border border-green-200 text-sm text-slate-800 mt-1 focus:ring-2 focus:ring-green-500/20 outline-none min-h-[100px]"
+                                    value={edit.new_content}
+                                    onChange={(e) => handleUpdateSuggestion(sectionIdx, editIdx, e.target.value)}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          ))
+                        )}
                       </div>
                     </div>
                   ))}
@@ -278,7 +311,7 @@ export default function Home() {
                       setJobDescription('');
                       setFile(null);
                       setStatus('');
-                      setAnalysisResults(null);
+                      setSections(null);
                       setUploadedFilename('');
                       if (fileInputRef.current) {
                         fileInputRef.current.value = '';
@@ -292,7 +325,7 @@ export default function Home() {
               </div>
             )}
 
-            {status && !downloadUrl && !analysisResults && <p className="text-center text-slate-500 mt-4 animate-pulse">{status}</p>}
+            {status && !downloadUrl && !sections && <p className="text-center text-slate-500 mt-4 animate-pulse">{status}</p>}
           </div>
         </div>
 
