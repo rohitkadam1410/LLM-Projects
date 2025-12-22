@@ -113,40 +113,119 @@ def apply_edits_to_docx(docx_path: str, edits: List[Dict[str, str]], output_path
         if not target or not content:
             continue
             
-        for para in doc.paragraphs:
+        # Helper to process a paragraph
+        def process_para(para):
             if target in para.text:
                 if action == "replace":
                     safe_replace_text(para, target, content)
                 elif action == "append":
                      para.add_run(" " + content)
-                break 
+                return True
+            return False
+
+        # 1. Check body paragraphs
+        for para in doc.paragraphs:
+            if process_para(para):
+                break
+        else:
+            # 2. Check tables if not found in body
+            # Use a flag to break out of nested loops
+            found = False
+            for table in doc.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        for para in cell.paragraphs:
+                            if process_para(para):
+                                found = True
+                                break
+                        if found: break
+                    if found: break
+                if found: break 
 
     doc.save(output_path)
 
-import fitz  # PyMuPDF
+def extract_text_from_docx(docx_path: str) -> str:
+    doc = Document(docx_path)
+    full_text = []
 
-def extract_text_from_pdf(pdf_path: str) -> str:
-    """Extracts text directly from PDF using PyMuPDF for high fidelity."""
-    text = ""
-    try:
-        with fitz.open(pdf_path) as doc:
-            for page in doc:
-                # sort=True helps with multi-column layouts by reordering text blocks
-                text += page.get_text(sort=True) + "\n"
-    except Exception as e:
-        print(f"Error reading PDF: {e}")
-        return ""
-    return text
+    # Helper to iterate over all block-level elements
+    # python-docx doesn't provide a flat iterator for everything including textboxes
+    # We must traverse the XML for w:t (text) elements or iterate relations?
+    # Simplest "visual" order is hard, but "content" order is possible via XML.
+    
+    # However, just aggressively grabbing paragraphs, tables, AND textboxes is safer.
+    
+    # 1. Main Paragraphs
+    for para in doc.paragraphs:
+        if para.text.strip():
+            full_text.append(para.text)
+            
+    # 2. Tables
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for para in cell.paragraphs:
+                    if para.text.strip():
+                        full_text.append(para.text)
+
+    # 3. Textboxes (w:txbxContent)
+    # This requires lxml inspection
+    from docx.oxml.ns import qn
+    
+    def iter_block_items(parent):
+        """
+        Recursively yield text from elements
+        """
+        for child in parent:
+             # Check for textbox content
+            if child.tag.endswith('txbxContent'):
+                for paragraph in child.findall(qn('w:p')):
+                     # Reconstruct paragraph text from runs
+                     text = ""
+                     for run in paragraph.findall(qn('w:r')):
+                         for t in run.findall(qn('w:t')):
+                             if t.text: text += t.text
+                     if text.strip():
+                         yield text
+            
+            # Recurse
+            yield from iter_block_items(child)
+
+    # We can also just iterate ALL w:t tags in the document structure? 
+    # That might duplicate text we already got from paragraphs.
+    # A safer approach for "missing" text is:
+    # Iterate XML. If it's inside a body paragraph, we theoretically got it (but maybe not if in a shape anchored there).
+    
+    # Let's try iterating all paragraphs in the document.xml, including those in textboxes.
+    # doc.element.body.findall('.//w:p') gets valid paragraphs, but turning them into text is the trick.
+    
+    # Simpler: Use doc.element.xpath('//w:t') to get ALL text, but that loses structure (newlines).
+    
+    # Robust "Everything" Approach:
+    # Rely on the fact that if it's important, it's text.
+    # But we need "Paragraphs" for the LLM to give us "Targets".
+    
+    # Let's revert to a slightly less hacky method:
+    # Analyzing the XML for textboxes specifically to append them.
+    for element in doc.element.body.iter():
+       if element.tag.endswith('txbxContent'):
+           for p in element.findall(qn('w:p')):
+               text = ""
+               for r in p.findall(qn('w:r')):
+                   for t in r.findall(qn('w:t')):
+                       if t.text: text += t.text
+               if text.strip():
+                   full_text.append(text)
+
+    return '\n'.join(full_text)
+
+# Removed extract_text_from_pdf dependency to ensure Sync
 
 def analyze_gaps(docx_path: str, job_description: str, pdf_path: str = None) -> Dict:
-    # Prefer extracting from PDF for analysis as it captures layout/textboxes better
-    if pdf_path and os.path.exists(pdf_path):
-        resume_text = extract_text_from_pdf(pdf_path)
-    else:
-        # Fallback to DOCX extraction
-        resume_text = extract_text_from_docx(docx_path)
+    # Reverting to DOCX extraction to ensure identifying target_text works for replacement.
+    # We improved extract_text_from_docx to include textboxes/tables.
+    resume_text = extract_text_from_docx(docx_path)
     
-    # If extraction failed or was empty, nice to know
     if not resume_text.strip():
         print("Warning: Extracted text is empty.")
     
@@ -198,7 +277,8 @@ def analyze_gaps(docx_path: str, job_description: str, pdf_path: str = None) -> 
        - Group skills logically if they aren't already.
        
     5. **Education**:
-       - Keep it concise.
+       - DO NOT MODIFY this section unless there is a factual error or major formatting issue. 
+       - Preserve the original text exactly as is by default.
     
     OUTPUT FORMAT:
     Return a JSON object:
