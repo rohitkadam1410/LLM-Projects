@@ -19,6 +19,7 @@ class Edit(BaseModel):
 class SectionAnalysis(BaseModel):
     section_name: str
     gaps: List[str]
+    suggestions: List[str]
     edits: List[Edit]
 
 class AnalysisResult(BaseModel):
@@ -121,7 +122,6 @@ def analyze_gaps(docx_path: str, job_description: str) -> Dict:
     GOAL: 
     Tailor the resume to significantly increase the chances of being shortlisted.
     Analyze the resume SECTION BY SECTION.
-    Prioritize "Professional Summary", "Experience", and "Projects".
     
     CONSTRAINTS:
     1. STRICTLY PRESERVE the original file structure. 
@@ -131,9 +131,30 @@ def analyze_gaps(docx_path: str, job_description: str) -> Dict:
     - Assess the initial resume against the JD (0-100).
     - Estimate the projected score after your edits (0-100).
     
-    STRATEGIES:
-    1. **Gap Analysis**: Find missing keywords for EACH section.
-    2. **Experience Enhancement**: Rewrite bullets to include keywords and simple quantification.
+    STRATEGIES (Section-Specific):
+    
+    1. **Professional Summary**:
+       - Ensure it matches the Job Title in the JD.
+       - Highlight top 3 achievements relevant to the JD.
+       - Use keywords from the JD (soft & hard skills).
+    
+    2. **Experience**:
+       - Quantify results using the STAR method (Situation, Task, Action, Result) where possible.
+       - Use strong action verbs (e.g., "Spearheaded," "Optimized," "Architected").
+       - Explicitly integrate key technical and functional keywords from the JD.
+       - Remove irrelevant responsibilities that dilute the impact.
+    
+    3. **Projects**:
+       - Highlight technical problem-solving.
+       - Mention specific technologies used (matching JD if applicable).
+       - Focus on the *impact* of the project.
+       
+    4. **Skills**:
+       - Prioritize hard skills found in the JD.
+       - Group skills logically if they aren't already.
+       
+    5. **Education**:
+       - Keep it concise.
     
     OUTPUT FORMAT:
     Return a JSON object:
@@ -145,6 +166,7 @@ def analyze_gaps(docx_path: str, job_description: str) -> Dict:
                 "section_name": "<name>",
                 "original_text": "<full original text of this section>",
                 "gaps": ["<gap1>", ...],
+                "suggestions": ["<high-level advice 1>", "<advice 2>", ...],
                 "edits": [
                     {{
                         "target_text": "<exact match>",
@@ -185,8 +207,11 @@ def analyze_gaps(docx_path: str, job_description: str) -> Dict:
             for section in result["sections"]:
                 name = section.get("section_name", "Unknown")
                 gaps = section.get("gaps", [])
+                suggestions = section.get("suggestions", [])
                 edits = section.get("edits", [])
-                changes_summary.append(f"Section {name}: Found {len(gaps)} gaps ({', '.join(gaps[:3])}...). Suggested {len(edits)} edits.")
+                changes_summary.append(f"Section {name}: Found {len(gaps)} gaps. {len(suggestions)} suggestions. Suggested {len(edits)} edits.")
+                if suggestions:
+                    changes_summary.append(f" - Advice: {'; '.join(suggestions[:3])}")
         
         changes_text = "\n".join(changes_summary)
         scores = calculate_scores(resume_text, job_description, changes_text)

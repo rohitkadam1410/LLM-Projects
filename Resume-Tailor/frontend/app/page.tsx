@@ -13,6 +13,7 @@ interface SectionAnalysis {
   section_name: string;
   original_text?: string;
   gaps: string[];
+  suggestions?: string[];
   edits: EditSuggestion[];
 }
 
@@ -248,6 +249,21 @@ export default function Home() {
                             <ul className="list-disc list-inside space-y-1 text-sm text-slate-700">
                               {section.gaps.map((gap, i) => (
                                 <li key={i}>{gap}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+
+                        {/* Suggestions Display */}
+                        {section.suggestions && section.suggestions.length > 0 && (
+                          <div className="mb-6 bg-blue-50 p-4 rounded-xl border border-blue-100">
+                            <h4 className="text-sm font-bold uppercase text-blue-600 tracking-wide mb-2 flex items-center">
+                              <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                              Strategic Advice
+                            </h4>
+                            <ul className="list-disc list-inside space-y-1 text-sm text-slate-700">
+                              {section.suggestions.map((suggestion, i) => (
+                                <li key={i}>{suggestion}</li>
                               ))}
                             </ul>
                           </div>
