@@ -51,8 +51,8 @@ async def analyze_resume(resume: UploadFile = File(...), job_description: str = 
     # 1. Convert PDF to customizable format (DOCX)
     docx_path = pdf_to_docx(temp_pdf_path)
     
-    # 2. Analyze gaps using LLM
-    analysis_result = analyze_gaps(docx_path, job_description)
+    # 2. Analyze gaps using LLM (Use PDF for reading text)
+    analysis_result = analyze_gaps(docx_path, job_description, pdf_path=temp_pdf_path)
     
     # We return the filename so the frontend can send it back for the next step
     # Ideally, we should use a session ID or a more robust temp file management system

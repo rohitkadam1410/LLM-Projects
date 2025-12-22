@@ -12,10 +12,14 @@ from tailor import analyze_gaps
 class TestTailorAnalysis(unittest.TestCase):
 
     @patch('tailor.openai.OpenAI')
-    @patch('tailor.extract_text_from_docx')
-    def test_analyze_gaps_with_suggestions(self, mock_extract, mock_openai_class):
-        # Mock DOCX text extraction
-        mock_extract.return_value = "Sample Resume Content"
+    @patch('tailor.extract_text_from_pdf')
+    @patch('tailor.os.path.exists')
+    def test_analyze_gaps_with_suggestions(self, mock_exists, mock_extract_pdf, mock_openai_class):
+        # Mock Exists
+        mock_exists.return_value = True
+        
+        # Mock PDF text extraction
+        mock_extract_pdf.return_value = "Sample Resume Content from PDF"
 
         # Mock OpenAI Response
         mock_client = MagicMock()
@@ -30,6 +34,7 @@ class TestTailorAnalysis(unittest.TestCase):
             "sections": [
                 {
                     "section_name": "Summary",
+                    "section_type": "Summary",
                     "original_text": "Old Summary",
                     "gaps": ["No metrics"],
                     "suggestions": ["Add quant results", "mention leadership"],
@@ -67,7 +72,7 @@ class TestTailorAnalysis(unittest.TestCase):
         mock_client.chat.completions.create.side_effect = [mock_response_1, mock_response_2]
 
         # ACT
-        result = analyze_gaps("dummy.docx", "Job Description Here")
+        result = analyze_gaps("dummy.docx", "Job Description Here", pdf_path="dummy.pdf")
 
         # ASSERT
         print("Result Keys:", result.keys())

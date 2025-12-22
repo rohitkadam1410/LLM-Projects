@@ -18,6 +18,7 @@ class Edit(BaseModel):
 
 class SectionAnalysis(BaseModel):
     section_name: str
+    section_type: str = "Other"
     gaps: List[str]
     suggestions: List[str]
     edits: List[Edit]
@@ -30,9 +31,20 @@ class AnalysisResult(BaseModel):
 def extract_text_from_docx(docx_path: str) -> str:
     doc = Document(docx_path)
     full_text = []
+    
+    # Extract from paragraphs
     for para in doc.paragraphs:
         if para.text.strip():
             full_text.append(para.text)
+            
+    # Extract from tables
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for para in cell.paragraphs:
+                    if para.text.strip():
+                        full_text.append(para.text)
+                        
     return '\n'.join(full_text)
 
 def safe_replace_text(paragraph, target: str, replacement: str):
@@ -111,8 +123,32 @@ def apply_edits_to_docx(docx_path: str, edits: List[Dict[str, str]], output_path
 
     doc.save(output_path)
 
-def analyze_gaps(docx_path: str, job_description: str) -> Dict:
-    resume_text = extract_text_from_docx(docx_path)
+import fitz  # PyMuPDF
+
+def extract_text_from_pdf(pdf_path: str) -> str:
+    """Extracts text directly from PDF using PyMuPDF for high fidelity."""
+    text = ""
+    try:
+        with fitz.open(pdf_path) as doc:
+            for page in doc:
+                # sort=True helps with multi-column layouts by reordering text blocks
+                text += page.get_text(sort=True) + "\n"
+    except Exception as e:
+        print(f"Error reading PDF: {e}")
+        return ""
+    return text
+
+def analyze_gaps(docx_path: str, job_description: str, pdf_path: str = None) -> Dict:
+    # Prefer extracting from PDF for analysis as it captures layout/textboxes better
+    if pdf_path and os.path.exists(pdf_path):
+        resume_text = extract_text_from_pdf(pdf_path)
+    else:
+        # Fallback to DOCX extraction
+        resume_text = extract_text_from_docx(docx_path)
+    
+    # If extraction failed or was empty, nice to know
+    if not resume_text.strip():
+        print("Warning: Extracted text is empty.")
     
     client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
@@ -121,11 +157,19 @@ def analyze_gaps(docx_path: str, job_description: str) -> Dict:
     
     GOAL: 
     Tailor the resume to significantly increase the chances of being shortlisted.
-    Analyze the resume SECTION BY SECTION.
+    
+    CRITICAL INSTRUCTION:
+    You MUST analyze and output results for the following sections:
+    1. "Professional Summary" (If missing, suggest ADDING it based on the resume content).
+    2. "Experience"
+    3. "Projects" (If missing, look for project-like entries in Experience or suggest adding relevant side projects).
+    4. "Skills"
+    5. "Education"
     
     CONSTRAINTS:
     1. STRICTLY PRESERVE the original file structure. 
     2. Suggest specific text replacements.
+    3. If a section exists but is named differently (e.g. "Profile" instead of "Professional Summary"), use the original name in 'section_name' but apply the strategy for that type.
     
     SCORING:
     - Assess the initial resume against the JD (0-100).
@@ -163,7 +207,8 @@ def analyze_gaps(docx_path: str, job_description: str) -> Dict:
         "projected_score": <int>,
         "sections": [
             {{
-                "section_name": "<name>",
+                "section_name": "<Original Section Header or 'New Section'>",
+                "section_type": "<Summary|Experience|Projects|Skills|Education|Other>",
                 "original_text": "<full original text of this section>",
                 "gaps": ["<gap1>", ...],
                 "suggestions": ["<high-level advice 1>", "<advice 2>", ...],
