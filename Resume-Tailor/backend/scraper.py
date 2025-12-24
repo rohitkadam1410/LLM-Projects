@@ -1,6 +1,9 @@
 import requests
 from bs4 import BeautifulSoup
 import re
+import os
+import json
+import openai
 
 def fetch_job_description(url: str) -> str:
     """
@@ -59,3 +62,34 @@ def fetch_job_description(url: str) -> str:
 
     except Exception as e:
         return f"Error fetching JD: {str(e)}"
+
+def extract_job_metadata(text: str) -> dict:
+    """
+    Uses LLM to extract Company Name and Job Role from JD text.
+    """
+    try:
+        if len(text) < 50:
+             return {"company": "", "role": ""}
+
+        client = openai.OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        prompt = f"""
+        Extract the 'Company Name' and 'Job Role' from the following Job Description text.
+        Return ONLY a JSON object with keys "company" and "role".
+        If you cannot find them, return empty strings.
+        
+        Text:
+        {text[:2000]}
+        """
+        
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            response_format={ "type": "json_object" }
+        )
+        
+        data = json.loads(response.choices[0].message.content)
+        return data
+    except Exception as e:
+        print(f"Metadata extraction failed: {e}")
+        return {"company": "", "role": ""}

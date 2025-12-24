@@ -24,6 +24,8 @@ export default function ApplicationForm({ onApplicationAdded }: { onApplicationA
             const data = await res.json();
             if (data.job_description) {
                 setJobDescription(data.job_description);
+                if (data.company) setCompanyName(data.company);
+                if (data.role) setJobRole(data.role);
             } else {
                 alert("Could not fetch JD. Please paste manually.");
             }

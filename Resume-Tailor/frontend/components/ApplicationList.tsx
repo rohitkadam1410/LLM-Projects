@@ -1,6 +1,8 @@
 "use client";
 import React, { useEffect, useState } from 'react';
 
+import { useRouter } from 'next/navigation';
+
 interface Application {
     id: number;
     company_name: string;
@@ -9,10 +11,12 @@ interface Application {
     date_applied: string;
     status: string;
     resume_path: string;
+    job_description?: string;
 }
 
 export default function ApplicationList({ refreshTrigger }: { refreshTrigger: number }) {
     const [applications, setApplications] = useState<Application[]>([]);
+    const router = useRouter();
 
     useEffect(() => {
         fetch('http://localhost:8000/applications')
@@ -20,6 +24,15 @@ export default function ApplicationList({ refreshTrigger }: { refreshTrigger: nu
             .then(data => setApplications(data))
             .catch(err => console.error("Error fetching applications:", err));
     }, [refreshTrigger]);
+
+    const handleTailor = (app: Application) => {
+        if (app.job_description) {
+            localStorage.setItem('tailor_jd', app.job_description);
+            router.push('/');
+        } else {
+            alert("No Job Description available for this application.");
+        }
+    };
 
     return (
         <div className="mt-8">
@@ -33,6 +46,7 @@ export default function ApplicationList({ refreshTrigger }: { refreshTrigger: nu
                             <th className="px-6 py-3">Role</th>
                             <th className="px-6 py-3">Status</th>
                             <th className="px-6 py-3">Link</th>
+                            <th className="px-6 py-3">Actions</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
@@ -62,6 +76,14 @@ export default function ApplicationList({ refreshTrigger }: { refreshTrigger: nu
                                             View
                                         </a>
                                     )}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                    <button
+                                        onClick={() => handleTailor(app)}
+                                        className="text-indigo-600 hover:text-indigo-900 dark:text-indigo-400 dark:hover:text-indigo-300 font-semibold"
+                                    >
+                                        Tailor Resume
+                                    </button>
                                 </td>
                             </tr>
                         ))}

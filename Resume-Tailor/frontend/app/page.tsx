@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 interface EditSuggestion {
   target_text: string;
@@ -31,6 +31,16 @@ export default function Home() {
   const [projectedScore, setProjectedScore] = useState(0);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Check for passed JD from Tracker
+  // Check for passed JD from Tracker
+  useEffect(() => {
+    const savedJD = localStorage.getItem('tailor_jd');
+    if (savedJD) {
+      setJobDescription(savedJD);
+      localStorage.removeItem('tailor_jd');
+    }
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {

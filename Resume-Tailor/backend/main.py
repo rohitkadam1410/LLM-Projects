@@ -109,7 +109,14 @@ async def generate_resume_endpoint(request: EditsRequest):
 @app.post("/fetch-jd")
 def get_jd(url: str = Form(...)):
     description = fetch_job_description(url)
-    return {"job_description": description}
+    # Extract metadata
+    from scraper import extract_job_metadata
+    metadata = extract_job_metadata(description)
+    return {
+        "job_description": description,
+        "company": metadata.get("company", ""),
+        "role": metadata.get("role", "")
+    }
 
 @app.get("/applications", response_model=List[Application])
 def get_applications(session: Session = Depends(get_session)):
