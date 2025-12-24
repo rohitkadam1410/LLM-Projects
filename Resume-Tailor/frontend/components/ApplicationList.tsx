@@ -16,9 +16,12 @@ interface Application {
 
 export default function ApplicationList({ refreshTrigger }: { refreshTrigger: number }) {
     const [applications, setApplications] = useState<Application[]>([]);
+    const [selectedApp, setSelectedApp] = useState<Application | null>(null);
+    const [timeline, setTimeline] = useState<any[]>([]);
+    const [newComment, setNewComment] = useState('');
     const router = useRouter();
 
-    const statusOptions = ['Applied', 'Interview', 'Offered', 'Rejected'];
+    const statusOptions = ['Started', 'Applied', 'Interview', 'Offered', 'Rejected'];
 
     useEffect(() => {
         fetch('http://localhost:8000/applications')
@@ -26,6 +29,43 @@ export default function ApplicationList({ refreshTrigger }: { refreshTrigger: nu
             .then(data => setApplications(data))
             .catch(err => console.error("Error fetching applications:", err));
     }, [refreshTrigger]);
+
+    const fetchTimeline = async (appId: number) => {
+        try {
+            const response = await fetch(`http://localhost:8000/applications/${appId}/timeline`);
+            const data = await response.json();
+            setTimeline(data);
+        } catch (error) {
+            console.error('Error fetching timeline:', error);
+        }
+    };
+
+    const handleViewDetails = (app: Application) => {
+        setSelectedApp(app);
+        fetchTimeline(app.id);
+    };
+
+    const handleAddComment = async () => {
+        if (!selectedApp || !newComment.trim()) return;
+
+        try {
+            const formData = new FormData();
+            formData.append('title', 'Note');
+            formData.append('description', newComment);
+
+            const response = await fetch(`http://localhost:8000/applications/${selectedApp.id}/timeline`, {
+                method: 'POST',
+                body: formData,
+            });
+
+            if (response.ok) {
+                setNewComment('');
+                fetchTimeline(selectedApp.id);
+            }
+        } catch (error) {
+            console.error('Error adding comment:', error);
+        }
+    };
 
     const handleTailor = (app: Application) => {
         if (app.job_description) {
@@ -116,10 +156,11 @@ export default function ApplicationList({ refreshTrigger }: { refreshTrigger: nu
                                         value={app.status}
                                         onChange={(e) => handleStatusChange(app, e.target.value)}
                                         className={`px-3 py-1.5 text-xs font-semibold rounded-full border-2 cursor-pointer transition-colors
-                                            ${app.status === 'Applied' ? 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100' :
-                                                app.status === 'Interview' ? 'bg-yellow-50 text-yellow-800 border-yellow-200 hover:bg-yellow-100' :
-                                                    app.status === 'Rejected' ? 'bg-red-50 text-red-800 border-red-200 hover:bg-red-100' :
-                                                        'bg-green-50 text-green-800 border-green-200 hover:bg-green-100'}`}
+                                            ${app.status === 'Started' ? 'bg-purple-50 text-purple-800 border-purple-200 hover:bg-purple-100' :
+                                                app.status === 'Applied' ? 'bg-blue-50 text-blue-800 border-blue-200 hover:bg-blue-100' :
+                                                    app.status === 'Interview' ? 'bg-yellow-50 text-yellow-800 border-yellow-200 hover:bg-yellow-100' :
+                                                        app.status === 'Rejected' ? 'bg-red-50 text-red-800 border-red-200 hover:bg-red-100' :
+                                                            'bg-green-50 text-green-800 border-green-200 hover:bg-green-100'}`}
                                     >
                                         {statusOptions.map(status => (
                                             <option key={status} value={status}>{status}</option>
@@ -135,6 +176,16 @@ export default function ApplicationList({ refreshTrigger }: { refreshTrigger: nu
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                                     <div className="flex items-center space-x-3">
+                                        <button
+                                            onClick={() => handleViewDetails(app)}
+                                            className="inline-flex items-center px-3 py-1.5 bg-slate-50 text-slate-700 rounded-md hover:bg-slate-100 font-medium transition-colors"
+                                        >
+                                            <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                            </svg>
+                                            Details
+                                        </button>
                                         <button
                                             onClick={() => handleTailor(app)}
                                             className="inline-flex items-center px-3 py-1.5 bg-indigo-50 text-indigo-700 rounded-md hover:bg-indigo-100 font-medium transition-colors"
@@ -165,6 +216,81 @@ export default function ApplicationList({ refreshTrigger }: { refreshTrigger: nu
                     </div>
                 )}
             </div>
+
+            {/* Details Modal */}
+            {selectedApp && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden">
+                        <div className="p-6 border-b border-slate-200 flex justify-between items-center">
+                            <div>
+                                <h2 className="text-2xl font-bold text-slate-900">{selectedApp.job_role}</h2>
+                                <p className="text-slate-600">{selectedApp.company_name}</p>
+                            </div>
+                            <button
+                                onClick={() => setSelectedApp(null)}
+                                className="text-slate-400 hover:text-slate-600"
+                            >
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div className="p-6 overflow-y-auto max-h-[50vh]">
+                            <h3 className="text-lg font-semibold text-slate-900 mb-4">Timeline & Notes</h3>
+
+                            {timeline.length === 0 ? (
+                                <p className="text-slate-500 text-sm italic">No timeline events yet.</p>
+                            ) : (
+                                <div className="space-y-4">
+                                    {timeline.map((event, idx) => (
+                                        <div key={idx} className="flex space-x-3">
+                                            <div className="flex-shrink-0">
+                                                <div className="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center">
+                                                    <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                </div>
+                                            </div>
+                                            <div className="flex-1 bg-slate-50 rounded-lg p-4">
+                                                <div className="flex justify-between items-start mb-1">
+                                                    <h4 className="font-semibold text-slate-900 text-sm">{event.title}</h4>
+                                                    <span className="text-xs text-slate-500">
+                                                        {new Date(event.date).toLocaleString()}
+                                                    </span>
+                                                </div>
+                                                {event.description && (
+                                                    <p className="text-sm text-slate-600">{event.description}</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="p-6 border-t border-slate-200 bg-slate-50">
+                            <h4 className="font-semibold text-slate-900 mb-3">Add a Note</h4>
+                            <div className="flex space-x-3">
+                                <input
+                                    type="text"
+                                    value={newComment}
+                                    onChange={(e) => setNewComment(e.target.value)}
+                                    onKeyPress={(e) => e.key === 'Enter' && handleAddComment()}
+                                    placeholder="Type your note..."
+                                    className="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none"
+                                />
+                                <button
+                                    onClick={handleAddComment}
+                                    className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium transition-colors"
+                                >
+                                    Add
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
