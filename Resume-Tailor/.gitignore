@@ -16,10 +16,12 @@ ENV/
 *.sqlite3
 applications.db
 
-# Uploaded Files
+# Uploaded & Generated Files
 backend/application_resumes/
-backend/uploaded_resumes/
-backend/temp/
+backend/temp_*.pdf
+backend/temp_*.docx
+backend/*_tailored.pdf
+backend/*_tailored.docx
 
 # Environment
 .env
