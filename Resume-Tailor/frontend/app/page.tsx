@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
-
+import Link from 'next/link';
 interface EditSuggestion {
   target_text: string;
   new_content: string;
@@ -128,11 +128,16 @@ export default function Home() {
       {/* Header */}
       <header className="sticky top-0 w-full bg-white/80 backdrop-blur-md border-b border-slate-200 z-50">
         <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-xl">R</div>
-            <h1 className="text-xl font-bold text-slate-800">Resume Tailor AI</h1>
+          <div className="flex items-center space-x-8">
+            <Link href="/" className="flex items-center space-x-2 group">
+              <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white font-bold text-xl group-hover:bg-indigo-700 transition">R</div>
+              <h1 className="text-xl font-bold text-slate-800 group-hover:text-indigo-600 transition">Resume Tailor AI</h1>
+            </Link>
+            <nav className="hidden md:flex space-x-6">
+              <Link href="/tracker" className="text-slate-600 hover:text-indigo-600 font-medium transition-colors">Application Tracker</Link>
+            </nav>
           </div>
-          <span className="text-sm font-medium text-slate-500">Fast. Private. Professional.</span>
+          <span className="text-sm font-medium text-slate-500 hidden sm:block">Fast. Private. Professional.</span>
         </div>
       </header>
 
@@ -402,10 +407,10 @@ export default function Home() {
           <p className="text-center text-slate-400 mt-12 text-sm">
             Powered by GPT-4 and Advanced Resume Logic. Private & Secure.
           </p>
-        </div>
+        </div >
 
         {/* Right Sidebar - Scorecard */}
-        <div className="lg:col-span-1">
+        < div className="lg:col-span-1" >
           <div className="sticky top-24 transition-all duration-500">
             {(sections || initialScore > 0) ? (
               <div className="bg-slate-900 rounded-2xl p-6 text-white shadow-xl animate-fade-in-up">
@@ -455,8 +460,8 @@ export default function Home() {
               </div>
             )}
           </div>
-        </div>
-      </div>
-    </main>
+        </div >
+      </div >
+    </main >
   );
 }

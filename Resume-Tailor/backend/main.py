@@ -1,8 +1,12 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import os
 from dotenv import load_dotenv
+from sqlmodel import Session, select
+from database import init_db, get_session
+from models import Application
+from scraper import fetch_job_description
 
 # Load env variables from potential locations
 load_dotenv() # current dir
@@ -12,9 +16,12 @@ load_dotenv("d:\\projects\\LLM-Projects\\.env")
 
 # from .pdf_handler import pdf_to_docx, docx_to_pdf
 # from .tailor import tailor_resume
+from datetime import datetime
 from pdf_handler import pdf_to_docx, docx_to_pdf
 from tailor import analyze_gaps, generate_tailored_resume
 from pydantic import BaseModel
+from typing import List, Dict
+from fastapi.responses import FileResponse
 
 app = FastAPI()
 
@@ -26,7 +33,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-from fastapi.responses import FileResponse
+@app.on_event("startup")
+def on_startup():
+    init_db()
 
 @app.get("/download/{filename}")
 async def download_file(filename: str):
@@ -34,8 +43,6 @@ async def download_file(filename: str):
     if os.path.exists(file_path):
         return FileResponse(file_path, media_type='application/pdf', filename=filename)
     return {"error": "File not found"}
-
-from typing import List, Dict
 
 class EditsRequest(BaseModel):
     filename: str
@@ -97,7 +104,50 @@ async def generate_resume_endpoint(request: EditsRequest):
         "download_url": f"http://localhost:8000/download/{filename}"
     }
 
+# --- Application Tracker Endpoints ---
 
+@app.post("/fetch-jd")
+def get_jd(url: str = Form(...)):
+    description = fetch_job_description(url)
+    return {"job_description": description}
+
+@app.get("/applications", response_model=List[Application])
+def get_applications(session: Session = Depends(get_session)):
+    applications = session.exec(select(Application)).all()
+    return applications
+
+@app.post("/applications", response_model=Application)
+async def create_application(
+    company_name: str = Form(...),
+    job_role: str = Form(...),
+    job_link: str = Form(None),
+    status: str = Form("Applied"),
+    job_description: str = Form(None),
+    resume: UploadFile = File(...),
+    session: Session = Depends(get_session)
+):
+    # Save resume specifically for this application
+    os.makedirs("application_resumes", exist_ok=True)
+    # create a unique filename to avoid collisions
+    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    safe_filename = f"{timestamp}_{resume.filename}"
+    file_location = os.path.join("application_resumes", safe_filename)
+    
+    with open(file_location, "wb+") as file_object:
+        file_object.write(await resume.read())
+
+    application = Application(
+        company_name=company_name,
+        job_role=job_role,
+        job_link=job_link,
+        status=status,
+        job_description=job_description,
+        resume_path=file_location
+    )
+    session.add(application)
+    session.commit()
+    session.refresh(application)
+    return application
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

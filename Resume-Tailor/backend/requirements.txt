@@ -6,3 +6,6 @@ openai
 python-docx
 docx2pdf
 python-dotenv
+sqlmodel
+beautifulsoup4
+requests
