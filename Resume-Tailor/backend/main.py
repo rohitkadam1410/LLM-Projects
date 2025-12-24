@@ -1,12 +1,20 @@
-from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from typing import List, Optional
+from database import init_db, get_session
+from models import Application, TimelineEvent
+from sqlmodel import Session, select
+from datetime import datetime
+import shutil
 import uvicorn
 import os
 from dotenv import load_dotenv
-from sqlmodel import Session, select
-from database import init_db, get_session
-from models import Application
 from scraper import fetch_job_description
+from pdf_handler import pdf_to_docx, docx_to_pdf
+from tailor import analyze_gaps, generate_tailored_resume
+from pydantic import BaseModel
+
 
 # Load env variables from potential locations
 load_dotenv() # current dir
@@ -155,6 +163,54 @@ async def create_application(
     session.commit()
     session.refresh(application)
     return application
+
+@app.delete("/applications/{application_id}")
+def delete_application(application_id: int, session: Session = Depends(get_session)):
+    app = session.get(Application, application_id)
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+    
+    # Delete file if exists (optional, safely)
+    if app.resume_path and os.path.exists(app.resume_path):
+        try:
+            os.remove(app.resume_path)
+        except:
+            pass
+            
+    session.delete(app)
+    session.commit()
+    return {"ok": True}
+
+@app.patch("/applications/{application_id}/status")
+def update_status(application_id: int, status: str = Form(...), session: Session = Depends(get_session)):
+    app = session.get(Application, application_id)
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+    
+    old_status = app.status
+    app.status = status
+    session.add(app)
+    
+    # Add Timeline Event
+    event = TimelineEvent(application_id=app.id, title="Status Change", description=f"Status changed from {old_status} to {status}")
+    session.add(event)
+    
+    session.commit()
+    session.refresh(app)
+    return app
+
+@app.get("/applications/{application_id}/timeline", response_model=List[TimelineEvent])
+def get_timeline(application_id: int, session: Session = Depends(get_session)):
+    events = session.exec(select(TimelineEvent).where(TimelineEvent.application_id == application_id).order_by(TimelineEvent.date.desc())).all()
+    return events
+
+@app.post("/applications/{application_id}/timeline")
+def add_timeline_event(application_id: int, title: str = Form(...), description: str = Form(None), session: Session = Depends(get_session)):
+    event = TimelineEvent(application_id=application_id, title=title, description=description)
+    session.add(event)
+    session.commit()
+    session.refresh(event)
+    return event
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
