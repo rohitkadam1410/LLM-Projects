@@ -1,11 +1,11 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, status
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 from database import init_db, get_session
-from models import Application, TimelineEvent
+from models import Application, TimelineEvent, User
 from sqlmodel import Session, select
-from datetime import datetime
+from datetime import datetime, timedelta
 import shutil
 import uvicorn
 import os
@@ -13,7 +13,10 @@ from dotenv import load_dotenv
 from scraper import fetch_job_description
 from pdf_handler import pdf_to_docx, docx_to_pdf
 from tailor import analyze_gaps, generate_tailored_resume
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
+from passlib.context import CryptContext
+from jose import JWTError, jwt
+import re
 
 
 # Load env variables from potential locations
@@ -22,14 +25,48 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file_
 # Actually cleaner to just try loading the specific path the user mentioned if possible, or just standard .env
 load_dotenv("d:\\projects\\LLM-Projects\\.env")
 
-# from .pdf_handler import pdf_to_docx, docx_to_pdf
-# from .tailor import tailor_resume
-from datetime import datetime
-from pdf_handler import pdf_to_docx, docx_to_pdf
-from tailor import analyze_gaps, generate_tailored_resume
-from pydantic import BaseModel
+# Authentication configuration
+SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-this-in-production")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password):
+    return pwd_context.hash(password)
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+def validate_email(email: str) -> bool:
+    """Validate email format"""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(pattern, email) is not None
+
+# Pydantic models for auth
+class UserRegister(BaseModel):
+    email: str
+    password: str
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
 from typing import List, Dict
-from fastapi.responses import FileResponse
 
 app = FastAPI()
 
@@ -44,6 +81,82 @@ app.add_middleware(
 @app.on_event("startup")
 def on_startup():
     init_db()
+
+# --- Authentication Endpoints ---
+
+@app.post("/auth/register", response_model=Token)
+def register(user: UserRegister, session: Session = Depends(get_session)):
+    # Validate email format
+    if not validate_email(user.email):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Invalid email format"
+        )
+    
+    # Check if user already exists
+    existing_user = session.exec(select(User).where(User.email == user.email)).first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Email already registered"
+        )
+    
+    # Validate password (minimum 6 characters)
+    if len(user.password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail="Password must be at least 6 characters long"
+        )
+    
+    # Create new user
+    hashed_password = get_password_hash(user.password)
+    new_user = User(
+        email=user.email, 
+        hashed_password=hashed_password
+    )
+    session.add(new_user)
+    session.commit()
+    session.refresh(new_user)
+    
+    # Generate JWT token
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.email}, expires_delta=access_token_expires
+    )
+    
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/auth/login", response_model=Token)
+def login(user: UserLogin, session: Session = Depends(get_session)):
+    # Validate email format
+    if not validate_email(user.email):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Invalid credentials"
+        )
+    
+    # Check if user exists
+    db_user = session.exec(select(User).where(User.email == user.email)).first()
+    if not db_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Invalid credentials"
+        )
+    
+    # Verify password
+    if not verify_password(user.password, db_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Invalid credentials"
+        )
+    
+    # Generate JWT token
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.email}, expires_delta=access_token_expires
+    )
+    
+    return {"access_token": access_token, "token_type": "bearer"}
 
 @app.get("/download/{filename}")
 async def download_file(filename: str):

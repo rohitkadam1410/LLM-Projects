@@ -9,3 +9,6 @@ python-dotenv
 sqlmodel
 beautifulsoup4
 requests
+google-generativeai
+python-jose[cryptography]
+passlib[bcrypt]
