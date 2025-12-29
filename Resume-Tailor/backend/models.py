@@ -31,3 +31,11 @@ class TimelineEvent(SQLModel, table=True):
     
     # Relationship
     application: Optional[Application] = Relationship(back_populates="timeline_events")
+
+class SurveyResponse(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    email: str
+    interested: bool = Field(default=True)
+    willing_price: str
+    feedback: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.now)

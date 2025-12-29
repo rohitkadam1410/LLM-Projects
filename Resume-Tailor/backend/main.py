@@ -3,7 +3,7 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 from database import init_db, get_session
-from models import Application, TimelineEvent, User
+from models import Application, TimelineEvent, User, SurveyResponse
 from sqlmodel import Session, select
 from datetime import datetime, timedelta
 import shutil
@@ -65,6 +65,12 @@ class UserLogin(BaseModel):
 class Token(BaseModel):
     access_token: str
     token_type: str
+
+class SurveySubmit(BaseModel):
+    email: str
+    interested: bool
+    willing_price: str
+    feedback: Optional[str] = None
 
 from typing import List, Dict
 
@@ -324,6 +330,19 @@ def add_timeline_event(application_id: int, title: str = Form(...), description:
     session.commit()
     session.refresh(event)
     return event
+
+@app.post("/api/survey")
+def submit_survey(survey: SurveySubmit, session: Session = Depends(get_session)):
+    new_response = SurveyResponse(
+        email=survey.email,
+        interested=survey.interested,
+        willing_price=survey.willing_price,
+        feedback=survey.feedback
+    )
+    session.add(new_response)
+    session.commit()
+    session.refresh(new_response)
+    return {"message": "Survey submitted successfully", "id": new_response.id}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

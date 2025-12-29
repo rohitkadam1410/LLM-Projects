@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Sidebar from "../components/Sidebar";
+import SurveyBanner from "../components/SurveyBanner";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -31,6 +32,7 @@ export default function RootLayout({
           <main className="flex-1 h-full overflow-y-auto w-full">
             {children}
           </main>
+          <SurveyBanner />
         </div>
       </body>
     </html>
