@@ -38,8 +38,18 @@ export default function LoginPage() {
             return;
         }
 
-        if (password.length < 6) {
-            setError('Password must be at least 6 characters long');
+        if (!isLogin) {
+            const strongPasswordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=\[\]{}|;:,.<>?]).{8,}$/;
+            if (!strongPasswordRegex.test(password)) {
+                setError('Password must be at least 8 characters and include uppercase, lowercase, number, and special character.');
+                return;
+            }
+            if (new TextEncoder().encode(password).length > 72) {
+                setError('Password is too long (max 72 bytes).');
+                return;
+            }
+        } else if (password.length < 1) {
+            setError('Please enter your password.');
             return;
         }
 
@@ -155,7 +165,9 @@ export default function LoginPage() {
                                 </button>
                             </div>
                             {!isLogin && (
-                                <p className="mt-2 text-xs text-white/70">Minimum 6 characters</p>
+                                <p className="mt-2 text-xs text-white/70">
+                                    Min 8 chars, uppercase, lowercase, number & symbol
+                                </p>
                             )}
                         </div>
 

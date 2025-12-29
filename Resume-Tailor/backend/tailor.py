@@ -47,51 +47,64 @@ def extract_text_from_docx(docx_path: str) -> str:
                         
     return '\n'.join(full_text)
 
+import re
+
+def normalize_text(text: str) -> str:
+    """Normalize whitespace for robust matching."""
+    return re.sub(r'\s+', ' ', text).strip()
+
 def safe_replace_text(paragraph, target: str, replacement: str):
     """
     Attempts to replace 'target' with 'replacement' in the paragraph while preserving formatting.
-    Strategy:
-    1. Check if 'target' exists in a single run. If so, replace it there.
-    2. If not, fallback to paragraph.text replacement but attempt to copy font from the first run of the target.
+    Uses normalized matching to ignore whitespace differences from PDF conversion.
     """
-    if target not in paragraph.text:
-        return
+    norm_target = normalize_text(target)
+    norm_para_text = normalize_text(paragraph.text)
 
-    # 1. Try single run replacement
+    if norm_target not in norm_para_text:
+        return False
+
+    # 1. Try single run replacement (exact match first)
     for run in paragraph.runs:
         if target in run.text:
             run.text = run.text.replace(target, replacement)
-            return
+            return True
 
-    # 2. Fallback: Replace whole paragraph text but try to keep style
-    # We will clear the paragraph and add a new run with the replacement text,
-    # applying the font/style from the first run (if any).
-    # NOTE: This replaces the ENTIRE paragraph content if we do this, which might be too aggressive 
-    # if the target is just a SUBSTRING. 
-    
-    # Better Fallback for Substrings spanning runs:
-    # Just do a naive replace on text. This destroys run boundaries for that paragraph.
-    # To mitigate "lost font", we capture the first run's font.
-    
+    # 2. Relaxed match: Check if normalized target is in normalized run text
+    # This handles cases where PDF extraction added extra spaces within a run
+    for run in paragraph.runs:
+        if norm_target in normalize_text(run.text):
+            # We have to be careful here. If we replace in the run, we might destroy formatting
+            # if the run contained more than just the target.
+            # But since it's in a single run, it's safer.
+            # We'll use a regex to replace that ignores whitespace.
+            pattern = re.escape(target).replace(r'\ ', r'\s+')
+            run.text = re.sub(pattern, replacement, run.text)
+            return True
+
+    # 3. Fallback: Full paragraph reconstruction if target spans runs
+    # This is where most PDF-to-DOCX artifacts happen.
     style_run = paragraph.runs[0] if paragraph.runs else None
     font_name = style_run.font.name if style_run else None
     font_size = style_run.font.size if style_run else None
     bold = style_run.bold if style_run else None
     italic = style_run.italic if style_run else None
-    color = style_run.font.color.rgb if style_run and style_run.font.color else None
-
-    # This operation clears existing runs and creates new ones usually? 
-    # Actually python-docx `para.text = ...` preserves the PARAGRAPH style but resets character formatting.
-    paragraph.text = paragraph.text.replace(target, replacement)
     
-    # Re-apply font to all runs (usually just one now)
-    for run in paragraph.runs:
-        if font_name: run.font.name = font_name
-        if font_size: run.font.size = font_size
-        if bold is not None: run.bold = bold
-        if italic is not None: run.italic = italic
-        if color: run.font.color.rgb = color
+    # regex replace that ignores internal whitespace
+    pattern = re.escape(target).replace(r'\ ', r'\s+')
+    new_text = re.sub(pattern, replacement, paragraph.text)
+    
+    if new_text != paragraph.text:
+        paragraph.text = new_text
+        # Re-apply font to all runs
+        for run in paragraph.runs:
+            if font_name: run.font.name = font_name
+            if font_size: run.font.size = font_size
+            if bold is not None: run.bold = bold
+            if italic is not None: run.italic = italic
+        return True
 
+    return False
 
 def apply_edits_to_docx(docx_path: str, edits: List[Dict[str, str]], output_path: str):
     # Copy original to output
@@ -99,48 +112,43 @@ def apply_edits_to_docx(docx_path: str, edits: List[Dict[str, str]], output_path
     doc = Document(output_path)
     
     for edit in edits:
-        if isinstance(edit, (dict, object)): 
-             # Handle both pydantic and dict
-             if isinstance(edit, dict):
-                action = edit.get("action")
-                target = edit.get("target_text")
-                content = edit.get("new_content")
-             else:
-                action = edit.action
-                target = edit.target_text
-                content = edit.new_content
+        if isinstance(edit, dict):
+            action = edit.get("action")
+            target = edit.get("target_text")
+            content = edit.get("new_content")
+        else:
+            action = edit.action
+            target = edit.target_text
+            content = edit.new_content
         
         if not target or not content:
             continue
             
-        # Helper to process a paragraph
         def process_para(para):
-            if target in para.text:
+            # We check if the normalized target is in the normalized paragraph text
+            if normalize_text(target) in normalize_text(para.text):
                 if action == "replace":
-                    safe_replace_text(para, target, content)
+                    return safe_replace_text(para, target, content)
                 elif action == "append":
                      para.add_run(" " + content)
-                return True
+                     return True
             return False
 
         # 1. Check body paragraphs
+        found = False
         for para in doc.paragraphs:
             if process_para(para):
-                break
-        else:
-            # 2. Check tables if not found in body
-            # Use a flag to break out of nested loops
-            found = False
-            for table in doc.tables:
-                for row in table.rows:
-                    for cell in row.cells:
-                        for para in cell.paragraphs:
-                            if process_para(para):
-                                found = True
-                                break
-                        if found: break
-                    if found: break
-                if found: break 
+                found = True
+                # Continue searching because the same target might appear multiple times
+                # (e.g. name, contact info)
+        
+        # 2. Check tables
+        for table in doc.tables:
+            for row in table.rows:
+                for cell in row.cells:
+                    for para in cell.paragraphs:
+                        if process_para(para):
+                            found = True
 
     doc.save(output_path)
 

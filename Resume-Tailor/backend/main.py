@@ -9,12 +9,13 @@ from datetime import datetime, timedelta
 import shutil
 import uvicorn
 import os
+import uuid
 from dotenv import load_dotenv
 from scraper import fetch_job_description
 from pdf_handler import pdf_to_docx, docx_to_pdf
 from tailor import analyze_gaps, generate_tailored_resume
 from pydantic import BaseModel, EmailStr
-from passlib.context import CryptContext
+import bcrypt
 from jose import JWTError, jwt
 import re
 
@@ -30,13 +31,21 @@ SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-this-in-production"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Verify a plain password against a hash using direct bcrypt."""
+    try:
+        return bcrypt.checkpw(
+            plain_password.encode("utf-8"), 
+            hashed_password.encode("utf-8")
+        )
+    except Exception:
+        return False
 
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
+def get_password_hash(password: str) -> str:
+    """Hash a password using direct bcrypt."""
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password.encode("utf-8"), salt)
+    return hashed.decode("utf-8")
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
@@ -52,6 +61,31 @@ def validate_email(email: str) -> bool:
     """Validate email format"""
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return re.match(pattern, email) is not None
+
+def validate_password(password: str) -> str:
+    """
+    Validate password strength.
+    Returns None if valid, otherwise returns an error message.
+    """
+    if len(password) < 8:
+        return "Password must be at least 8 characters long."
+    
+    if len(password.encode("utf-8")) > 72:
+        return "Password is too long (must be under 72 bytes)."
+        
+    if not any(char.isupper() for char in password):
+        return "Password must contain at least one uppercase letter."
+        
+    if not any(char.islower() for char in password):
+        return "Password must contain at least one lowercase letter."
+        
+    if not any(char.isdigit() for char in password):
+        return "Password must contain at least one digit."
+        
+    if not any(char in "!@#$%^&*()_+-=[]{}|;:,.<>?" for char in password):
+        return "Password must contain at least one special character (!@#$%^&* etc.)."
+        
+    return None
 
 # Pydantic models for auth
 class UserRegister(BaseModel):
@@ -107,11 +141,12 @@ def register(user: UserRegister, session: Session = Depends(get_session)):
             detail="Email already registered"
         )
     
-    # Validate password (minimum 6 characters)
-    if len(user.password) < 6:
+    # Validate password strength
+    error_message = validate_password(user.password)
+    if error_message:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, 
-            detail="Password must be at least 6 characters long"
+            detail=error_message
         )
     
     # Create new user
@@ -134,6 +169,13 @@ def register(user: UserRegister, session: Session = Depends(get_session)):
 
 @app.post("/auth/login", response_model=Token)
 def login(user: UserLogin, session: Session = Depends(get_session)):
+    # Validate password length (bcrypt limit is 72 bytes)
+    if len(user.password.encode("utf-8")) > 72:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, 
+            detail="Invalid credentials"
+        )
+    
     # Validate email format
     if not validate_email(user.email):
         raise HTTPException(
@@ -177,8 +219,11 @@ class EditsRequest(BaseModel):
 
 @app.post("/analyze")
 async def analyze_resume(resume: UploadFile = File(...), job_description: str = Form(...)):
-    # Save uploaded resume temporarily
-    temp_pdf_path = f"temp_{resume.filename}"
+    # Create a unique session ID
+    session_id = str(uuid.uuid4())[:8]
+    
+    # Save uploaded resume temporarily with session ID
+    temp_pdf_path = f"temp_{session_id}_{resume.filename}"
     with open(temp_pdf_path, "wb") as buffer:
         buffer.write(await resume.read())
     
@@ -188,29 +233,20 @@ async def analyze_resume(resume: UploadFile = File(...), job_description: str = 
     # 2. Analyze gaps using LLM (Use PDF for reading text)
     analysis_result = analyze_gaps(docx_path, job_description, pdf_path=temp_pdf_path)
     
-    # We return the filename so the frontend can send it back for the next step
-    # Ideally, we should use a session ID or a more robust temp file management system
-    # For now, we rely on the filename being uniqueish enough or trusted context
+    # We return the filename (with session ID) so the frontend can send it back for the next step
     return {
         "message": "Analysis complete", 
         "sections": analysis_result.get("sections", []),
         "initial_score": analysis_result.get("initial_score", 0),
         "projected_score": analysis_result.get("projected_score", 0),
-        "filename": resume.filename,
+        "filename": temp_pdf_path, # Returning the temp path as the handle
         "temp_docx_path": docx_path 
     }
 
 @app.post("/generate")
 async def generate_resume_endpoint(request: EditsRequest):
-    # Reconstruct paths
-    # We assume the file is still there. In a real app, use S3 or DB.
-    # The analyze step created "temp_filename.pdf" and then "temp_filename.docx"
-    
-    # We need the docx path.
-    # Let's trust the frontend ensures the flow is sequential and fast enough that temp files exist.
-    
-    original_filename = request.filename
-    temp_pdf_path = f"temp_{original_filename}"
+    # Reconstruct paths using the filename handle provided by frontend
+    temp_pdf_path = request.filename
     docx_path = temp_pdf_path.replace(".pdf", ".docx")
     
     if not os.path.exists(docx_path):

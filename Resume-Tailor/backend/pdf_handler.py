@@ -68,6 +68,15 @@ def docx_to_pdf(docx_path: str) -> str:
     # Initialize COM library for Windows
     pythoncom.CoInitialize()
     pdf_path = docx_path.replace(".docx", ".pdf")
+    
+    # Ensure fresh export by deleting existing file if any
+    import os
+    if os.path.exists(pdf_path):
+        try:
+            os.remove(pdf_path)
+        except:
+            pass
+            
     convert(docx_path, pdf_path)
     return pdf_path
 
