@@ -15,10 +15,14 @@ export default function ApplicationForm({ onApplicationAdded }: { onApplicationA
         if (!jobLink) return;
         setFetchingJD(true);
         try {
+            const token = localStorage.getItem('auth_token');
             const formData = new FormData();
             formData.append('url', jobLink);
             const res = await fetch('http://localhost:8000/fetch-jd', {
                 method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
                 body: formData,
             });
             const data = await res.json();
@@ -54,8 +58,12 @@ export default function ApplicationForm({ onApplicationAdded }: { onApplicationA
         formData.append('resume', resume);
 
         try {
+            const token = localStorage.getItem('auth_token');
             const res = await fetch('http://localhost:8000/applications', {
                 method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
                 body: formData,
             });
             if (res.ok) {

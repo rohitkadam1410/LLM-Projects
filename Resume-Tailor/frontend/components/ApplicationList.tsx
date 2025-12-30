@@ -24,15 +24,31 @@ export default function ApplicationList({ refreshTrigger }: { refreshTrigger: nu
     const statusOptions = ['Started', 'Applied', 'Interview', 'Offered', 'Rejected'];
 
     useEffect(() => {
-        fetch('http://localhost:8000/applications')
+        const token = localStorage.getItem('auth_token');
+        fetch('http://localhost:8000/applications', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        })
             .then(res => res.json())
-            .then(data => setApplications(data))
+            .then(data => {
+                if (Array.isArray(data)) {
+                    setApplications(data);
+                } else {
+                    console.error("Invalid response from applications:", data);
+                }
+            })
             .catch(err => console.error("Error fetching applications:", err));
-    }, [refreshTrigger]);
+    }, [refreshTrigger, router]);
 
     const fetchTimeline = async (appId: number) => {
         try {
-            const response = await fetch(`http://localhost:8000/applications/${appId}/timeline`);
+            const token = localStorage.getItem('auth_token');
+            const response = await fetch(`http://localhost:8000/applications/${appId}/timeline`, {
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
+            });
             const data = await response.json();
             setTimeline(data);
         } catch (error) {
@@ -49,12 +65,16 @@ export default function ApplicationList({ refreshTrigger }: { refreshTrigger: nu
         if (!selectedApp || !newComment.trim()) return;
 
         try {
+            const token = localStorage.getItem('auth_token');
             const formData = new FormData();
             formData.append('title', 'Note');
             formData.append('description', newComment);
 
             const response = await fetch(`http://localhost:8000/applications/${selectedApp.id}/timeline`, {
                 method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
                 body: formData,
             });
 
@@ -84,8 +104,12 @@ export default function ApplicationList({ refreshTrigger }: { refreshTrigger: nu
         if (!confirmed) return;
 
         try {
+            const token = localStorage.getItem('auth_token');
             const response = await fetch(`http://localhost:8000/applications/${app.id}`, {
                 method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                }
             });
 
             if (response.ok) {
@@ -102,11 +126,15 @@ export default function ApplicationList({ refreshTrigger }: { refreshTrigger: nu
 
     const handleStatusChange = async (app: Application, newStatus: string) => {
         try {
+            const token = localStorage.getItem('auth_token');
             const formData = new FormData();
             formData.append('status', newStatus);
 
             const response = await fetch(`http://localhost:8000/applications/${app.id}/status`, {
                 method: 'PATCH',
+                headers: {
+                    'Authorization': `Bearer ${token}`
+                },
                 body: formData,
             });
 

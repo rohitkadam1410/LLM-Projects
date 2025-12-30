@@ -1,6 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, status
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import OAuth2PasswordBearer
 from typing import List, Optional
 from database import init_db, get_session
 from models import Application, TimelineEvent, User, SurveyResponse
@@ -56,6 +57,27 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+
+async def get_current_user(token: str = Depends(oauth2_scheme), session: Session = Depends(get_session)) -> User:
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+        
+    user = session.exec(select(User).where(User.email == email)).first()
+    if user is None:
+        raise credentials_exception
+    return user
 
 def validate_email(email: str) -> bool:
     """Validate email format"""
@@ -270,7 +292,7 @@ async def generate_resume_endpoint(request: EditsRequest):
 # --- Application Tracker Endpoints ---
 
 @app.post("/fetch-jd")
-def get_jd(url: str = Form(...)):
+def get_jd(url: str = Form(...), current_user: User = Depends(get_current_user)):
     description = fetch_job_description(url)
     # Extract metadata
     from scraper import extract_job_metadata
@@ -282,8 +304,11 @@ def get_jd(url: str = Form(...)):
     }
 
 @app.get("/applications", response_model=List[Application])
-def get_applications(session: Session = Depends(get_session)):
-    applications = session.exec(select(Application)).all()
+def get_applications(
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    applications = session.exec(select(Application).where(Application.user_id == current_user.id)).all()
     return applications
 
 @app.post("/applications", response_model=Application)
@@ -294,7 +319,8 @@ async def create_application(
     status: str = Form("Applied"),
     job_description: str = Form(None),
     resume: UploadFile = File(...),
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
 ):
     # Save resume specifically for this application
     os.makedirs("application_resumes", exist_ok=True)
@@ -307,6 +333,7 @@ async def create_application(
         file_object.write(await resume.read())
 
     application = Application(
+        user_id=current_user.id,
         company_name=company_name,
         job_role=job_role,
         job_link=job_link,
@@ -320,9 +347,13 @@ async def create_application(
     return application
 
 @app.delete("/applications/{application_id}")
-def delete_application(application_id: int, session: Session = Depends(get_session)):
+def delete_application(
+    application_id: int, 
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
     app = session.get(Application, application_id)
-    if not app:
+    if not app or app.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Application not found")
     
     # Delete file if exists (optional, safely)
@@ -337,9 +368,14 @@ def delete_application(application_id: int, session: Session = Depends(get_sessi
     return {"ok": True}
 
 @app.patch("/applications/{application_id}/status")
-def update_status(application_id: int, status: str = Form(...), session: Session = Depends(get_session)):
+def update_status(
+    application_id: int, 
+    status: str = Form(...), 
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
     app = session.get(Application, application_id)
-    if not app:
+    if not app or app.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Application not found")
     
     old_status = app.status
@@ -355,12 +391,32 @@ def update_status(application_id: int, status: str = Form(...), session: Session
     return app
 
 @app.get("/applications/{application_id}/timeline", response_model=List[TimelineEvent])
-def get_timeline(application_id: int, session: Session = Depends(get_session)):
+def get_timeline(
+    application_id: int, 
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    # Verify ownership
+    app = session.get(Application, application_id)
+    if not app or app.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Application not found")
+
     events = session.exec(select(TimelineEvent).where(TimelineEvent.application_id == application_id).order_by(TimelineEvent.date.desc())).all()
     return events
 
 @app.post("/applications/{application_id}/timeline")
-def add_timeline_event(application_id: int, title: str = Form(...), description: str = Form(None), session: Session = Depends(get_session)):
+def add_timeline_event(
+    application_id: int, 
+    title: str = Form(...), 
+    description: str = Form(None), 
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    # Verify ownership
+    app = session.get(Application, application_id)
+    if not app or app.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Application not found")
+
     event = TimelineEvent(application_id=application_id, title=title, description=description)
     session.add(event)
     session.commit()

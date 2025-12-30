@@ -8,9 +8,13 @@ class User(SQLModel, table=True):
     hashed_password: str
     created_at: datetime = Field(default_factory=datetime.now)
     is_active: bool = Field(default=True)
+    
+    # Relationship
+    applications: List["Application"] = Relationship(back_populates="user")
 
 class Application(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
     company_name: str
     job_role: str
     job_link: Optional[str] = None
@@ -20,6 +24,7 @@ class Application(SQLModel, table=True):
     resume_path: Optional[str] = None
     
     # Relationship
+    user: Optional[User] = Relationship(back_populates="applications")
     timeline_events: List["TimelineEvent"] = Relationship(back_populates="application")
 
 class TimelineEvent(SQLModel, table=True):
