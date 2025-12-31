@@ -77,7 +77,7 @@ export default function SurveyBanner() {
                 ) : (
                     <form onSubmit={handleSubmit} className="space-y-3">
                         <p className="text-sm text-gray-600">
-                            We're going public soon! Would you pay for a subscription?
+                            We&apos;re going public soon! Would you pay for a subscription?
                         </p>
 
                         <div>

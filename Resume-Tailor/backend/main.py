@@ -444,6 +444,10 @@ class SaveResumeRequest(BaseModel):
     original_text: str
     tailored_text: str
     tailored_sections: List[Dict]
+    # Optional fields for auto-creating application
+    company_name: Optional[str] = None
+    job_role: Optional[str] = None
+    job_description: Optional[str] = None
 
 @app.post("/api/resume/save")
 def save_resume(
@@ -463,7 +467,28 @@ def save_resume(
     session.add(saved_resume)
     session.commit()
     session.refresh(saved_resume)
-    return {"message": "Resume saved successfully", "id": saved_resume.id}
+    
+    # Auto-create application if company/role provided
+    application_id = None
+    if req.company_name and req.job_role:
+        new_app = Application(
+            user_id=current_user.id,
+            company_name=req.company_name,
+            job_role=req.job_role,
+            status="Started",
+            job_description=req.job_description,
+            saved_resume_id=saved_resume.id
+        )
+        session.add(new_app)
+        session.commit()
+        session.refresh(new_app)
+        application_id = new_app.id
+    
+    return {
+        "message": "Resume saved successfully", 
+        "id": saved_resume.id,
+        "application_id": application_id
+    }
 
 @app.get("/api/resume/{resume_id}")
 def get_resume(
@@ -484,6 +509,26 @@ def get_resume(
         "tailored_sections": json.loads(resume.tailored_sections_json),
         "created_at": resume.created_at
     }
+
+@app.patch("/api/resume/{resume_id}")
+def update_resume(
+    resume_id: int,
+    req: SaveResumeRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    import json
+    resume = session.get(SavedResume, resume_id)
+    if not resume or resume.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Resume not found")
+        
+    resume.tailored_text = req.tailored_text
+    resume.tailored_sections_json = json.dumps(req.tailored_sections)
+    
+    session.add(resume)
+    session.commit()
+    session.refresh(resume)
+    return {"message": "Resume updated successfully", "id": resume.id}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

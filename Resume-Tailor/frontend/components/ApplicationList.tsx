@@ -12,6 +12,7 @@ interface Application {
     status: string;
     resume_path: string;
     job_description?: string;
+    saved_resume_id?: number;
 }
 
 export default function ApplicationList({ refreshTrigger }: { refreshTrigger: number }) {
@@ -163,6 +164,7 @@ export default function ApplicationList({ refreshTrigger }: { refreshTrigger: nu
                             <th className="px-6 py-3">Company</th>
                             <th className="px-6 py-3">Role</th>
                             <th className="px-6 py-3">Status</th>
+                            <th className="px-6 py-3">Resume</th>
                             <th className="px-6 py-3">Link</th>
                             <th className="px-6 py-3">Actions</th>
                         </tr>
@@ -194,6 +196,18 @@ export default function ApplicationList({ refreshTrigger }: { refreshTrigger: nu
                                             <option key={status} value={status}>{status}</option>
                                         ))}
                                     </select>
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                    {app.saved_resume_id ? (
+                                        <button
+                                            onClick={() => router.push(`/resumes/${app.saved_resume_id}`)}
+                                            className="text-indigo-600 hover:text-indigo-900 font-medium underline"
+                                        >
+                                            View Resume
+                                        </button>
+                                    ) : (
+                                        <span className="text-gray-400 text-xs italic">Not Tailored</span>
+                                    )}
                                 </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 dark:text-blue-400">
                                     {app.job_link && (

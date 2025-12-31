@@ -23,10 +23,12 @@ class Application(SQLModel, table=True):
     status: str = Field(default="Applied")
     job_description: Optional[str] = None
     resume_path: Optional[str] = None
+    saved_resume_id: Optional[int] = Field(default=None, foreign_key="savedresume.id")
     
     # Relationship
     user: Optional[User] = Relationship(back_populates="applications")
     timeline_events: List["TimelineEvent"] = Relationship(back_populates="application")
+    saved_resume: Optional["SavedResume"] = Relationship(back_populates="application")
 
 class TimelineEvent(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -57,6 +59,7 @@ class SavedResume(SQLModel, table=True):
     
     # Relationship
     user: Optional[User] = Relationship(back_populates="saved_resumes")
+    application: Optional[Application] = Relationship(back_populates="saved_resume")
 
 # Update User model to include relationship
 # We need to do this carefully if User is already defined above without this field.

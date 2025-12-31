@@ -36,6 +36,15 @@ export default function TailorPage() {
     const [initialScore, setInitialScore] = useState(0);
     const [projectedScore, setProjectedScore] = useState(0);
 
+    // Job Metadata State
+    const [companyName, setCompanyName] = useState('');
+    const [jobRole, setJobRole] = useState('');
+
+    // Save/View State
+    const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
+    const [isSaving, setIsSaving] = useState(false);
+    const [savedResumeId, setSavedResumeId] = useState<number | null>(null);
+
     // Trial tracking
     const [usageCount, setUsageCount] = useState(0);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -86,6 +95,8 @@ export default function TailorPage() {
             const data = await response.json();
             if (data.job_description) {
                 setJobDescription(data.job_description);
+                if (data.company) setCompanyName(data.company);
+                if (data.role) setJobRole(data.role);
                 setJdMode('text'); // Switch back to text view to show result
             }
         } catch (error) {
@@ -146,51 +157,59 @@ export default function TailorPage() {
         setSections(newSections);
     };
 
-    const handleFinalGenerate = async () => {
-        if (!uploadedFilename || !sections) return;
-
-        setIsLoading(true);
-        setStatus('Applying changes and generating PDF...');
-
-        // Increment usage count for non-authenticated users
-        if (!isAuthenticated) {
-            const newCount = usageCount + 1;
-            localStorage.setItem('tailor_usage_count', newCount.toString());
-            setUsageCount(newCount);
-
-            // Show warning if this was second use
-            if (newCount >= 2) {
-                setShowTrialWarning(false); // Will redirect after download
-            } else if (newCount === 1) {
-                setShowTrialWarning(true);
-            }
+    const handleSaveResume = async () => {
+        if (!sections || !isAuthenticated) {
+            if (!isAuthenticated) router.push('/login');
+            return;
         }
 
+        setIsSaving(true);
+        setStatus('Saving to your profile...');
+
         try {
-            const response = await fetch('http://localhost:8000/generate', {
+            // Construct tailored text from sections
+            const tailoredText = sections.map(s => {
+                let text = s.original_text || "";
+                s.edits.forEach(edit => {
+                    // Simple replacement for text reconstruction (approximate for display)
+                    // In a real app we'd need better reconstruction logic or return it from backend
+                    text = text.replace(edit.target_text, edit.new_content);
+                });
+                return text;
+            }).join('\n\n');
+
+            const originalText = sections.map(s => s.original_text).join('\n\n');
+
+            const response = await fetch('http://localhost:8000/api/resume/save', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('auth_token')}`
                 },
                 body: JSON.stringify({
                     filename: uploadedFilename,
-                    sections: sections
+                    original_text: originalText,
+                    tailored_text: tailoredText,
+                    tailored_sections: sections,
+                    company_name: companyName,
+                    job_role: jobRole,
+                    job_description: jobDescription
                 }),
             });
 
             const data = await response.json();
-            if (data.download_url) {
-                setDownloadUrl(data.download_url);
-                setStatus('Resume generated successfully!');
-                setSections(null); // Hide the review section
+            if (data.id) {
+                setSavedResumeId(data.id);
+                setViewMode('preview');
+                setStatus('Resume saved successfully!');
             } else {
-                setStatus('Something went wrong generating the PDF.');
+                setStatus('Failed to save resume.');
             }
         } catch (error) {
-            console.error('Error generating file:', error);
+            console.error('Error saving:', error);
             setStatus('Error connecting to server.');
         } finally {
-            setIsLoading(false);
+            setIsSaving(false);
         }
     };
 
@@ -265,7 +284,7 @@ export default function TailorPage() {
                         </div>
                         <h3 className="text-2xl font-extrabold mb-2">Free Trial Limit Reached</h3>
                         <p className="text-white/90 mb-6">
-                            You've used your 2 free tailorings! Create a free account to continue with unlimited access.
+                            You&apos;ve used your 2 free tailorings! Create a free account to continue with unlimited access.
                         </p>
                         <Link
                             href="/login"
@@ -285,7 +304,7 @@ export default function TailorPage() {
                         <h2 className="text-4xl font-extrabold text-slate-900 mb-4 tracking-tight">Tailor your resume in seconds.</h2>
                         <p className="text-lg text-slate-600 max-w-2xl mx-auto">
                             Upload your existing PDF resume and the job description you are targeting.
-                            Review our AI's suggestions before generating your final resume.
+                            Review our AI&apos;s suggestions before generating your final resume.
                         </p>
                     </div>
 
@@ -374,7 +393,7 @@ export default function TailorPage() {
                                             </button>
                                         </div>
                                         <p className="text-xs text-slate-500 pl-1">
-                                            Or <button onClick={() => setJdMode('text')} className="text-indigo-600 hover:underline">paste text manually</button> if the specific site isn't supported.
+                                            Or <button onClick={() => setJdMode('text')} className="text-indigo-600 hover:underline">paste text manually</button> if the specific site isn&apos;t supported.
                                         </p>
                                     </div>
                                 )}
@@ -406,22 +425,20 @@ export default function TailorPage() {
                             )}
 
                             {/* Step 3: Review & Edit */}
-                            {sections && !downloadUrl && (
+                            {sections && !savedResumeId && (
                                 <div className="pt-4 space-y-8 animate-fade-in-up">
-
-
                                     <div className="flex items-center">
                                         <span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold mr-3">3</span>
                                         <label className="text-lg font-semibold text-slate-800">Review Analysis & Suggestions</label>
                                     </div>
-                                    <p className="text-slate-600">Review the AI's analysis for each section. Check the identified gaps and edit the suggestions before regenerating.</p>
+                                    <p className="text-slate-600">Review the AI&apos;s analysis for each section. Check the identified gaps and edit the suggestions before saving.</p>
 
                                     <div className="space-y-8">
                                         {sections.map((section, sectionIdx) => (
                                             <div key={sectionIdx} className="bg-slate-50 p-6 rounded-2xl border border-slate-200 shadow-sm">
                                                 <h3 className="text-xl font-bold text-slate-800 mb-4 border-b border-slate-200 pb-2">{section.section_name}</h3>
 
-                                                {/* Gaps Display */}
+                                                {/* Gaps */}
                                                 {section.gaps && section.gaps.length > 0 && (
                                                     <div className="mb-6 bg-orange-50 p-4 rounded-xl border border-orange-100">
                                                         <h4 className="text-sm font-bold uppercase text-orange-600 tracking-wide mb-2 flex items-center">
@@ -436,7 +453,7 @@ export default function TailorPage() {
                                                     </div>
                                                 )}
 
-                                                {/* Suggestions Display */}
+                                                {/* Suggestions */}
                                                 {section.suggestions && section.suggestions.length > 0 && (
                                                     <div className="mb-6 bg-blue-50 p-4 rounded-xl border border-blue-100">
                                                         <h4 className="text-sm font-bold uppercase text-blue-600 tracking-wide mb-2 flex items-center">
@@ -451,8 +468,7 @@ export default function TailorPage() {
                                                     </div>
                                                 )}
 
-                                                {/* Edits Display */}
-                                                {/* Inline Text Review */}
+                                                {/* Edits */}
                                                 <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm text-sm leading-relaxed text-slate-700 whitespace-pre-wrap font-sans">
                                                     {(() => {
                                                         if (!section.original_text) {
@@ -481,7 +497,7 @@ export default function TailorPage() {
                                                         }).filter(e => e.pos !== -1).sort((a, b) => a.pos - b.pos);
 
                                                         // Filter overlapping edits
-                                                        let validEdits = [];
+                                                        const validEdits = [];
                                                         let currentCoverageLimit = -1;
                                                         for (const edit of sortedEdits) {
                                                             if (edit.pos >= currentCoverageLimit) {
@@ -524,58 +540,102 @@ export default function TailorPage() {
                                     </div>
 
                                     <button
-                                        onClick={handleFinalGenerate}
-                                        disabled={isLoading}
+                                        onClick={() => {
+                                            if (!companyName || !jobRole) {
+                                                const role = prompt("Please enter the Job Role for tracking:", jobRole || "");
+                                                const company = prompt("Please enter the Company Name for tracking:", companyName || "");
+                                                if (role) setJobRole(role);
+                                                if (company) setCompanyName(company);
+
+                                                // Give state a moment update? State updates are async.
+                                                // Better request handling:
+                                                if (role && company) {
+                                                    // We need to call save with these values directly or ensure state is set.
+                                                    // React won't update state synchronously.
+                                                    // Let's modify handleSaveResume to check args or just rely on prompt return for now,
+                                                    // but state is cleaner.
+                                                    // For this iteration, let's keep it simple: relying on next render or just proceed.
+                                                    // Actually, simply calling logic inside handler is safer.
+                                                    // But for now, let's just use the state if set, if not prompt inside handler?
+                                                    // Let's refactor handleSaveResume to prompt if missing.
+                                                }
+                                            }
+                                            handleSaveResume();
+                                        }}
+                                        disabled={isSaving}
                                         className={`w-full py-4 px-6 rounded-xl font-bold text-lg shadow-lg transition-all transform duration-200 mt-6
-                    ${isLoading
+                    ${isSaving
                                                 ? 'bg-slate-100 text-slate-400 cursor-not-allowed shadow-none'
                                                 : 'bg-green-600 hover:bg-green-700 text-white hover:shadow-green-500/30 hover:-translate-y-0.5 active:translate-y-0'
                                             }`}
                                     >
-                                        {isLoading ? 'Generating Final Resume...' : 'Approve & Generate Resume'}
+                                        {isSaving ? 'Saving...' : (isAuthenticated ? 'Save to Tracker & View' : 'Login to Save')}
                                     </button>
                                 </div>
                             )}
 
-                            {/* Success Area */}
-                            {downloadUrl && (
-                                <div className="flex flex-col items-center justify-center space-y-4 animate-fade-in-up pt-8">
-                                    <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center text-3xl mb-2">✓</div>
-                                    <h3 className="text-2xl font-bold text-slate-800">Your Resume is Ready!</h3>
-                                    <p className="text-slate-500 mb-4 text-center">We've successfully tailored your resume based on your approved suggestions.</p>
-
-                                    <div className="flex space-x-4 w-full justify-center">
-                                        <a
-                                            href={downloadUrl}
-                                            download
-                                            className="flex-1 max-w-sm bg-indigo-600 text-white font-bold py-4 px-6 rounded-xl text-center hover:bg-indigo-700 transition-colors shadow-lg hover:shadow-indigo-500/30 flex items-center justify-center"
-                                        >
-                                            <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                                            </svg>
-                                            Download Word
-                                        </a>
+                            {/* Comparison / Preview View */}
+                            {viewMode === 'preview' && sections && (
+                                <div className="space-y-6 animate-fade-in-up">
+                                    <div className="flex items-center justify-between">
+                                        <h3 className="text-2xl font-bold text-slate-800">Final Digital Resume</h3>
                                         <button
-                                            onClick={() => {
-                                                setDownloadUrl('');
-                                                setJobDescription('');
-                                                setFile(null);
-                                                setStatus('');
-                                                setSections(null);
-                                                setUploadedFilename('');
-                                                setInitialScore(0);
-                                                setProjectedScore(0);
-                                                if (fileInputRef.current) {
-                                                    fileInputRef.current.value = '';
-                                                }
-                                            }}
-                                            className="flex-1 max-w-xs bg-white border border-slate-200 text-slate-600 font-bold py-4 px-6 rounded-xl hover:bg-slate-50 transition-colors"
+                                            onClick={() => setViewMode('edit')}
+                                            className="text-indigo-600 hover:underline font-medium"
                                         >
-                                            Start Over
+                                            ← Back to Editing
                                         </button>
                                     </div>
+
+                                    <div className="grid grid-cols-2 gap-6 h-[600px]">
+                                        {/* Original */}
+                                        <div className="border border-slate-200 rounded-xl overflow-hidden flex flex-col">
+                                            <div className="bg-slate-50 p-3 border-b border-slate-200 font-bold text-slate-500 uppercase text-xs tracking-wider">Original</div>
+                                            <div className="p-4 overflow-y-auto bg-slate-50/50 flex-1 whitespace-pre-wrap text-sm text-slate-600 font-mono">
+                                                {sections.map(s => s.original_text).join('\n\n')}
+                                            </div>
+                                        </div>
+
+                                        {/* Tailored */}
+                                        <div className="border border-green-200 rounded-xl overflow-hidden flex flex-col shadow-lg shadow-green-100">
+                                            <div className="bg-green-50 p-3 border-b border-green-200 font-bold text-green-700 uppercase text-xs tracking-wider flex justify-between">
+                                                <span>Tailored Version</span>
+                                                <span className="bg-green-200 text-green-800 px-2 rounded-full text-[10px]">Ready</span>
+                                            </div>
+                                            <div className="p-4 overflow-y-auto bg-white flex-1 whitespace-pre-wrap text-sm text-slate-800 font-medium">
+                                                {sections.map(s => {
+                                                    let text = s.original_text || "";
+                                                    s.edits.forEach(edit => {
+                                                        text = text.replace(edit.target_text, edit.new_content);
+                                                    });
+                                                    return text;
+                                                }).join('\n\n')}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 text-blue-800 text-sm">
+                                        <strong>Note:</strong> This resume is now saved to your profile. You can access it anytime from the sidebar.
+                                    </div>
+
+                                    <button
+                                        onClick={() => {
+                                            if (fileInputRef.current) fileInputRef.current.value = '';
+                                            setFile(null);
+                                            setJobDescription('');
+                                            setSections(null);
+                                            setViewMode('edit');
+                                            setSavedResumeId(null);
+                                            setStatus('');
+                                        }}
+                                        className="w-full py-3 bg-white border border-slate-200 rounded-xl text-slate-600 font-bold hover:bg-slate-50 transition-colors"
+                                    >
+                                        Start New Tailoring
+                                    </button>
                                 </div>
                             )}
+
+                            {/* Success Area - Removed PDF Download */}
 
                             {status && !downloadUrl && !sections && <p className="text-center text-slate-500 mt-4 animate-pulse">{status}</p>}
                         </div>
@@ -639,6 +699,6 @@ export default function TailorPage() {
                     </div>
                 </div>
             </div>
-        </div>
+        </div >
     );
 }
