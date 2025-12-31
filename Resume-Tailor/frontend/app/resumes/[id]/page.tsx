@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+
+// ... (retain interfaces)
 
 interface EditSuggestion {
     target_text: string;
@@ -28,8 +30,11 @@ interface SavedResume {
     created_at: string;
 }
 
-export default function ResumeViewerPage({ params }: { params: { id: string } }) {
+export default function ResumeViewerPage() {
     const router = useRouter();
+    const params = useParams();
+    const id = params?.id as string;
+
     const [resume, setResume] = useState<SavedResume | null>(null);
     const [sections, setSections] = useState<SectionAnalysis[] | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -38,6 +43,7 @@ export default function ResumeViewerPage({ params }: { params: { id: string } })
 
     useEffect(() => {
         const fetchResume = async () => {
+            if (!id) return;
             try {
                 const token = localStorage.getItem('auth_token');
                 if (!token) {
@@ -45,7 +51,7 @@ export default function ResumeViewerPage({ params }: { params: { id: string } })
                     return;
                 }
 
-                const response = await fetch(`http://localhost:8000/api/resume/${params.id}`, {
+                const response = await fetch(`http://localhost:8000/api/resume/${id}`, {
                     headers: {
                         'Authorization': `Bearer ${token}`
                     }
@@ -57,7 +63,7 @@ export default function ResumeViewerPage({ params }: { params: { id: string } })
                     setSections(data.tailored_sections);
                 } else {
                     console.error('Failed to fetch resume');
-                    router.push('/tracker');
+                    router.push('/tracker'); // Redirect if not found
                 }
             } catch (error) {
                 console.error('Error fetching resume:', error);
@@ -67,7 +73,7 @@ export default function ResumeViewerPage({ params }: { params: { id: string } })
         };
 
         fetchResume();
-    }, [params.id, router]);
+    }, [id, router]);
 
     const handleUpdateSuggestion = (sectionIndex: number, editIndex: number, newValue: string) => {
         if (!sections) return;
@@ -106,7 +112,8 @@ export default function ResumeViewerPage({ params }: { params: { id: string } })
             });
 
             if (response.ok) {
-                const data = await response.json();
+                // data not needed if not used, or just await response.json() if side-effect
+                await response.json();
                 setResume(prev => prev ? { ...prev, tailored_text: tailoredText, tailored_sections: sections } : null);
                 alert('Changes saved successfully!');
                 setViewMode('preview');
@@ -161,7 +168,7 @@ export default function ResumeViewerPage({ params }: { params: { id: string } })
             {viewMode === 'edit' && (
                 <div className="space-y-8 animate-fade-in-up">
                     <div className="bg-blue-50 border border-blue-100 p-4 rounded-xl text-blue-800 text-sm">
-                        Edit the suggestions below. Click "Save Changes" to update your tailored resume.
+                        Edit the suggestions below. Click &quot;Save Changes&quot; to update your tailored resume.
                     </div>
 
                     <div className="space-y-6">
@@ -195,7 +202,8 @@ export default function ResumeViewerPage({ params }: { params: { id: string } })
                                             return { ...e, origIdx: i, pos };
                                         }).filter(e => e.pos !== -1).sort((a, b) => a.pos - b.pos);
 
-                                        let validEdits = [];
+                                        // Filter overlapping edits
+                                        const validEdits = [];
                                         let currentCoverageLimit = -1;
                                         for (const edit of sortedEdits) {
                                             if (edit.pos >= currentCoverageLimit) {

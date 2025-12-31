@@ -157,7 +157,7 @@ export default function TailorPage() {
         setSections(newSections);
     };
 
-    const handleSaveResume = async () => {
+    const handleSaveResume = async (overrideCompanyName?: string, overrideJobRole?: string) => {
         if (!sections || !isAuthenticated) {
             if (!isAuthenticated) router.push('/login');
             return;
@@ -165,6 +165,10 @@ export default function TailorPage() {
 
         setIsSaving(true);
         setStatus('Saving to your profile...');
+
+        // Use overrides if provided, otherwise fall back to state
+        const finalCompany = overrideCompanyName || companyName;
+        const finalRole = overrideJobRole || jobRole;
 
         try {
             // Construct tailored text from sections
@@ -191,8 +195,8 @@ export default function TailorPage() {
                     original_text: originalText,
                     tailored_text: tailoredText,
                     tailored_sections: sections,
-                    company_name: companyName,
-                    job_role: jobRole,
+                    company_name: finalCompany,
+                    job_role: finalRole,
                     job_description: jobDescription
                 }),
             });
@@ -200,6 +204,13 @@ export default function TailorPage() {
             const data = await response.json();
             if (data.id) {
                 setSavedResumeId(data.id);
+                // Also create application ID alert if returned?
+                if (data.application_id) {
+                    console.log("Application created:", data.application_id);
+                } else if (finalCompany && finalRole) {
+                    console.warn("Application NOT created despite company/role provided");
+                }
+
                 setViewMode('preview');
                 setStatus('Resume saved successfully!');
             } else {
@@ -541,26 +552,24 @@ export default function TailorPage() {
 
                                     <button
                                         onClick={() => {
-                                            if (!companyName || !jobRole) {
-                                                const role = prompt("Please enter the Job Role for tracking:", jobRole || "");
-                                                const company = prompt("Please enter the Company Name for tracking:", companyName || "");
-                                                if (role) setJobRole(role);
-                                                if (company) setCompanyName(company);
+                                            let currentRole = jobRole;
+                                            let currentCompany = companyName;
 
-                                                // Give state a moment update? State updates are async.
-                                                // Better request handling:
-                                                if (role && company) {
-                                                    // We need to call save with these values directly or ensure state is set.
-                                                    // React won't update state synchronously.
-                                                    // Let's modify handleSaveResume to check args or just rely on prompt return for now,
-                                                    // but state is cleaner.
-                                                    // For this iteration, let's keep it simple: relying on next render or just proceed.
-                                                    // Actually, simply calling logic inside handler is safer.
-                                                    // But for now, let's just use the state if set, if not prompt inside handler?
-                                                    // Let's refactor handleSaveResume to prompt if missing.
+                                            if (!currentCompany || !currentRole) {
+                                                const role = prompt("Please enter the Job Role for tracking:", currentRole || "");
+                                                const company = prompt("Please enter the Company Name for tracking:", currentCompany || "");
+
+                                                if (role) {
+                                                    setJobRole(role);
+                                                    currentRole = role;
+                                                }
+                                                if (company) {
+                                                    setCompanyName(company);
+                                                    currentCompany = company;
                                                 }
                                             }
-                                            handleSaveResume();
+                                            // Pass the current values (from state or prompt) directly to the handler
+                                            handleSaveResume(currentCompany, currentRole);
                                         }}
                                         disabled={isSaving}
                                         className={`w-full py-4 px-6 rounded-xl font-bold text-lg shadow-lg transition-all transform duration-200 mt-6
