@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from typing import List, Optional
 from database import init_db, get_session
-from models import Application, TimelineEvent, User, SurveyResponse
+from models import Application, TimelineEvent, User, SurveyResponse, SavedResume
 from sqlmodel import Session, select
 from datetime import datetime, timedelta
 import shutil
@@ -232,7 +232,10 @@ def login(user: UserLogin, session: Session = Depends(get_session)):
 async def download_file(filename: str):
     file_path = os.path.join(os.getcwd(), filename)
     if os.path.exists(file_path):
-        return FileResponse(file_path, media_type='application/pdf', filename=filename)
+        media_type = 'application/pdf'
+        if filename.endswith('.docx'):
+            media_type = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        return FileResponse(file_path, media_type=media_type, filename=filename)
     return {"error": "File not found"}
 
 class EditsRequest(BaseModel):
@@ -277,22 +280,22 @@ async def generate_resume_endpoint(request: EditsRequest):
     # 3. Apply edits
     tailored_docx_path = generate_tailored_resume(docx_path, request.sections)
     
-    # 4. Convert back to PDF
-    tailored_pdf_path = docx_to_pdf(tailored_docx_path)
+    # 4. Skip PDF conversion - Return DOCX directly
+    # tailored_pdf_path = docx_to_pdf(tailored_docx_path)
     
     # extract just the filename for the download url
-    filename = os.path.basename(tailored_pdf_path)
+    filename = os.path.basename(tailored_docx_path)
     
     return {
         "message": "Resume tailored successfully", 
-        "pdf_path": tailored_pdf_path, 
+        "pdf_path": tailored_docx_path, # Keeping key 'pdf_path' for generic naming, or change to 'file_path' if frontend adapts
         "download_url": f"http://localhost:8000/download/{filename}"
     }
 
 # --- Application Tracker Endpoints ---
 
 @app.post("/fetch-jd")
-def get_jd(url: str = Form(...), current_user: User = Depends(get_current_user)):
+def get_jd(url: str = Form(...), session: Session = Depends(get_session)): # Removed current_user dependency for public access
     description = fetch_job_description(url)
     # Extract metadata
     from scraper import extract_job_metadata
@@ -435,6 +438,52 @@ def submit_survey(survey: SurveySubmit, session: Session = Depends(get_session))
     session.commit()
     session.refresh(new_response)
     return {"message": "Survey submitted successfully", "id": new_response.id}
+
+class SaveResumeRequest(BaseModel):
+    filename: str
+    original_text: str
+    tailored_text: str
+    tailored_sections: List[Dict]
+
+@app.post("/api/resume/save")
+def save_resume(
+    req: SaveResumeRequest,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    import json
+    
+    saved_resume = SavedResume(
+        user_id=current_user.id,
+        filename=req.filename,
+        original_text=req.original_text,
+        tailored_text=req.tailored_text,
+        tailored_sections_json=json.dumps(req.tailored_sections)
+    )
+    session.add(saved_resume)
+    session.commit()
+    session.refresh(saved_resume)
+    return {"message": "Resume saved successfully", "id": saved_resume.id}
+
+@app.get("/api/resume/{resume_id}")
+def get_resume(
+    resume_id: int,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user)
+):
+    resume = session.get(SavedResume, resume_id)
+    if not resume or resume.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Resume not found")
+        
+    import json
+    return {
+        "id": resume.id,
+        "filename": resume.filename,
+        "original_text": resume.original_text,
+        "tailored_text": resume.tailored_text,
+        "tailored_sections": json.loads(resume.tailored_sections_json),
+        "created_at": resume.created_at
+    }
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

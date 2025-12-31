@@ -27,7 +27,10 @@ export default function TailorPage() {
     const [downloadUrl, setDownloadUrl] = useState('');
     const [status, setStatus] = useState('');
 
-    // New state for analysis flow
+    // JD Fetch State
+    const [jdMode, setJdMode] = useState<'text' | 'url'>('text');
+    const [jdUrl, setJdUrl] = useState('');
+    const [isFetchingJd, setIsFetchingJd] = useState(false);
     const [sections, setSections] = useState<SectionAnalysis[] | null>(null);
     const [uploadedFilename, setUploadedFilename] = useState('');
     const [initialScore, setInitialScore] = useState(0);
@@ -66,6 +69,30 @@ export default function TailorPage() {
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files) {
             setFile(e.target.files[0]);
+        }
+    };
+
+    const handleFetchJd = async () => {
+        if (!jdUrl) return;
+        setIsFetchingJd(true);
+        try {
+            const formData = new FormData();
+            formData.append('url', jdUrl);
+
+            const response = await fetch('http://localhost:8000/fetch-jd', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+            if (data.job_description) {
+                setJobDescription(data.job_description);
+                setJdMode('text'); // Switch back to text view to show result
+            }
+        } catch (error) {
+            console.error('Error fetching JD:', error);
+            alert('Failed to fetch Job Description. Please check the URL.');
+        } finally {
+            setIsFetchingJd(false);
         }
     };
 
@@ -300,16 +327,57 @@ export default function TailorPage() {
 
                             {/* Step 2: Job Description */}
                             <div className={`transition-all duration-300 ${isLoading || sections || downloadUrl ? 'opacity-50 pointer-events-none' : ''}`}>
-                                <div className="flex items-center mb-4">
-                                    <span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold mr-3">2</span>
-                                    <label className="text-lg font-semibold text-slate-800">Job Description</label>
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className="flex items-center">
+                                        <span className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold mr-3">2</span>
+                                        <label className="text-lg font-semibold text-slate-800">Job Description</label>
+                                    </div>
+                                    <div className="flex bg-slate-100 p-1 rounded-lg">
+                                        <button
+                                            onClick={() => setJdMode('text')}
+                                            className={`px-3 py-1 text-sm font-medium rounded-md transition-all ${jdMode === 'text' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                        >
+                                            Paste Text
+                                        </button>
+                                        <button
+                                            onClick={() => setJdMode('url')}
+                                            className={`px-3 py-1 text-sm font-medium rounded-md transition-all ${jdMode === 'url' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                                        >
+                                            Fetch URL
+                                        </button>
+                                    </div>
                                 </div>
-                                <textarea
-                                    className="w-full p-4 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all outline-none text-slate-700 placeholder:text-slate-400 min-h-[200px] resize-y"
-                                    placeholder="Paste the full job description here..."
-                                    value={jobDescription}
-                                    onChange={(e) => setJobDescription(e.target.value)}
-                                />
+
+                                {jdMode === 'text' ? (
+                                    <textarea
+                                        className="w-full p-4 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all outline-none text-slate-700 placeholder:text-slate-400 min-h-[200px] resize-y"
+                                        placeholder="Paste the full job description here..."
+                                        value={jobDescription}
+                                        onChange={(e) => setJobDescription(e.target.value)}
+                                    />
+                                ) : (
+                                    <div className="space-y-3">
+                                        <div className="flex space-x-2">
+                                            <input
+                                                type="url"
+                                                placeholder="Paste LinkedIn or Indeed job URL..."
+                                                className="flex-1 p-4 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-4 focus:ring-indigo-500/10 transition-all outline-none text-slate-700 placeholder:text-slate-400"
+                                                value={jdUrl}
+                                                onChange={(e) => setJdUrl(e.target.value)}
+                                            />
+                                            <button
+                                                onClick={handleFetchJd}
+                                                disabled={isFetchingJd || !jdUrl}
+                                                className="px-6 py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                            >
+                                                {isFetchingJd ? 'Fetching...' : 'Fetch'}
+                                            </button>
+                                        </div>
+                                        <p className="text-xs text-slate-500 pl-1">
+                                            Or <button onClick={() => setJdMode('text')} className="text-indigo-600 hover:underline">paste text manually</button> if the specific site isn't supported.
+                                        </p>
+                                    </div>
+                                )}
                             </div>
 
                             {/* Action Area: Analyze */}
@@ -483,9 +551,9 @@ export default function TailorPage() {
                                             className="flex-1 max-w-sm bg-indigo-600 text-white font-bold py-4 px-6 rounded-xl text-center hover:bg-indigo-700 transition-colors shadow-lg hover:shadow-indigo-500/30 flex items-center justify-center"
                                         >
                                             <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
                                             </svg>
-                                            Download PDF
+                                            Download Word
                                         </a>
                                         <button
                                             onClick={() => {

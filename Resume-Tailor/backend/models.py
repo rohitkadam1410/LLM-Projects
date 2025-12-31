@@ -11,6 +11,7 @@ class User(SQLModel, table=True):
     
     # Relationship
     applications: List["Application"] = Relationship(back_populates="user")
+    saved_resumes: List["SavedResume"] = Relationship(back_populates="user")
 
 class Application(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -44,3 +45,20 @@ class SurveyResponse(SQLModel, table=True):
     willing_price: str
     feedback: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.now)
+
+class SavedResume(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    filename: str
+    original_text: str
+    tailored_text: str
+    tailored_sections_json: str # Storing the JSON structure as text
+    created_at: datetime = Field(default_factory=datetime.now)
+    
+    # Relationship
+    user: Optional[User] = Relationship(back_populates="saved_resumes")
+
+# Update User model to include relationship
+# We need to do this carefully if User is already defined above without this field.
+# Since SQLModel resolves forward references, we might need to update User class or utilize the string forward reference we just added.
+
