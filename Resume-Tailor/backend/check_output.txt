@@ -1,0 +1,79 @@
+Rohit Kadam Pune, India •  • +91 7767880235 • 
+Passionate Data Science researcher with 4+ years of experience developing AI ML and GenAI-powered solutions in health tech and regulatory intelligence. Granted patent holder, published author, and PharmaSUG presenter. Actively exploring the intersection of AI and life sciences through academic and industry-led innovation. 
+PROFESSIONALEXPERIENCE
+TECHNICAL SKILLS
+Python, Data Science, Machine Learning, NLP, Generative AI, RAG, Azure, OpenAI, REST APIs,AWS (Bedrock),RASA 
+EDUCATION
+Bachelor of Technology (Mechanical Engineering): 7.62 CGPI Yashawantrao Chavan Institute of Science, Satara Higher Secondary (H.S.C): 81.38 % 
+Jul 2014 – May 2018 Satara, India Jun 2012- May 2014 
+Maharaja Sayajirao Vidyalaya, Satara 	Satara, India 
+Secondary School (S.S.C):  93.64 % 
+ Jun 2011- May 2012 
+CONFERENCES AND PRESENTATIONS
+PATENTS 
+PUBLICATIONS
+TATA CONSULTANCY SERVICES
+Pune, India 
+I.T. Analyst 
+Jan 2024 – Present 
+•
+Led the development of a GenAI-based medical assistant using Azure OpenAI which improved monitoring 
+process efficiency. 
+•
+Directed a team of 4 in building modular LLM Applications using RAG- for literature management system. 
+•
+Acted as the primary point of contact for stakeholders during the pilot phase, streamlining solution rollouts. 
+•
+Conducted cross-team brainstorming sessions and stakeholder interviews to define business use cases in 
+HealthTech. 
+System Engineer 
+Jul 2021 – Dec 2023 
+•
+Developed the Regulatory Intelligence Chatbot project using RASA and custom NLP, reducing query response 
+time for regulatory professionals 
+•
+Collaborated with SMEs and business leads to design AI-driven healthcare pilots. 
+•
+Served as Innovation Lead during the Incubation Bootcamp, resulting in the award-winning product idea 
+•
+Mentored three junior interns in Python, NLP, and AI ML fundamentals and developing POC solutions. 
+•
+Initiated a knowledge-sharing forum within the R&I team to accelerate GenAI adoption across verticals. 
+Assistant System Engineer 
+Sep 2020 – Jun 2021 
+•
+Contributed to data analysis and dashboard creation using Python for EHR Analytics. 
+•
+Supported early experiments with NLP for medical writing applications. 
+•
+Worked as an individual contributor in POC development to streamline EHR data to EDC 
+Projects 
+•
+GenAI Based medical monitoring assistant: 
+▪
+Developed an intelligent assistant using Azure OpenAI to support real time medical monitoring and 
+decision making in clinical trials. 
+▪
+API driven architecture to support medical monitoring queries and provide actionable insights 
+•
+Literature insights Platform: 
+▪
+Designed literature search and analysis platform to extract key insights from medical literature and support 
+ICSR detection 
+▪
+Using customized search, information retrieval and LLM based ICSR detection strategy automatic 
+categorization of article into distinct groups. 
+Rajarambapu Institute of Technology, Shivaji University 
+Sangli, India 
+PharmaSUG 2025 
+ San Diego, USA
+The paper discussed how Generative AI can strategically streamline signal detection, safety reviews, and eering by mining unstructured scientific and medical literature — driving faster, more informed clinical decisions.  
+PharmaSUG 2024 
+ Baltimore, USA 
+Presented a paper on how large language models (LLMs) coupled with next-generatiatabase, search and analytic engines etc. can create a comprehensive AI-based technology automation platform.  
+●Granted: Automated Continuous Validation for Regulatory Compliance (2023) 
+•
+Proposed an automated approach for validating computer systems with dynamic components using synthetic 
+	UAT and learning saturation testing: ●Filed: Automated Clinical Event and Endpoint Adjudication System (2024) 
+•••
+The Future of Regulatory Intelligence with Conversational AI (2022) – Discusses chatbot-driven access to regulatory knowledge.  AI/ML Approaches to Assisted Medical Writing – Part 1 & 2 (2021–2022) – Covers abstractive vs. extractive summarization methods.  Future of Clinical Trial Documentation Management using Blockchain (2021) – Examines eTMF digitization and audit compliance. 

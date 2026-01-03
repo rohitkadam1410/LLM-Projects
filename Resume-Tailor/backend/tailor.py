@@ -136,68 +136,54 @@ def apply_edits_to_docx(docx_path: str, edits: List[Dict[str, str]], output_path
     doc.save(output_path)
 
 def extract_text_from_docx(docx_path: str) -> str:
+    from docx.oxml.ns import qn
     doc = Document(docx_path)
     full_text = []
 
-    # Helper to iterate over all block-level elements
-    # python-docx doesn't provide a flat iterator for everything including textboxes
-    # We must traverse the XML for w:t (text) elements or iterate relations?
-    # Simplest "visual" order is hard, but "content" order is possible via XML.
-    
-    # However, just aggressively grabbing paragraphs, tables, AND textboxes is safer.
-    
-    # 1. Main Paragraphs
-    for para in doc.paragraphs:
-        if para.text.strip():
-            full_text.append(para.text)
-            
-    # 2. Tables
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for para in cell.paragraphs:
-                    if para.text.strip():
-                        full_text.append(para.text)
+    # Track processed elements using the underlying XML element (stable identity)
+    processed_elements = set()
 
-    # 3. Textboxes (w:txbxContent)
-    # This requires lxml inspection
-    from docx.oxml.ns import qn
-    
-    def iter_block_items(parent):
-        """
-        Recursively yield text from elements
-        """
-        for child in parent:
-             # Check for textbox content
-            if child.tag.endswith('txbxContent'):
-                for paragraph in child.findall(qn('w:p')):
-                     # Reconstruct paragraph text from runs
-                     text = ""
-                     for run in paragraph.findall(qn('w:r')):
-                         for t in run.findall(qn('w:t')):
-                             if t.text: text += t.text
-                     if text.strip():
-                         yield text
+    def add_to_full_text(elements, source_label=""):
+        """Process a list of paragraph/table elements and add unique ones to full_text."""
+        for element in elements:
+            # For paragraphs, we use the _element (stable XML object)
+            # For tables, they also have _element
+            element_id = element._element if hasattr(element, '_element') else element
             
-            # Recurse
-            yield from iter_block_items(child)
+            if element_id in processed_elements:
+                continue
+            processed_elements.add(element_id)
 
-    # We can also just iterate ALL w:t tags in the document structure? 
-    # That might duplicate text we already got from paragraphs.
-    # A safer approach for "missing" text is:
-    # Iterate XML. If it's inside a body paragraph, we theoretically got it (but maybe not if in a shape anchored there).
-    
-    # Let's try iterating all paragraphs in the document.xml, including those in textboxes.
-    # doc.element.body.findall('.//w:p') gets valid paragraphs, but turning them into text is the trick.
-    
-    # Simpler: Use doc.element.xpath('//w:t') to get ALL text, but that loses structure (newlines).
-    
-    # Robust "Everything" Approach:
-    # Rely on the fact that if it's important, it's text.
-    # But we need "Paragraphs" for the LLM to give us "Targets".
-    
-    # Let's revert to a slightly less hacky method:
-    # Analyzing the XML for textboxes specifically to append them.
+            if hasattr(element, 'text'):
+                if element.text.strip():
+                    full_text.append(element.text)
+            elif hasattr(element, 'rows'): # It's a table
+                for row in element.rows:
+                    for cell in row.cells:
+                        # Cell objects are proxies, use the underlying tc (table cell) element
+                        tc_id = cell._element
+                        if tc_id not in processed_elements:
+                            processed_elements.add(tc_id)
+                            # Combine paragraphs in cell with space to avoid word merging
+                            cell_text = " ".join([p.text for p in cell.paragraphs if p.text.strip()])
+                            if cell_text.strip():
+                                full_text.append(cell_text)
+
+    # 1. Headers
+    for section in doc.sections:
+        add_to_full_text(section.header.paragraphs)
+        add_to_full_text(section.header.tables)
+
+    # 2. Body
+    add_to_full_text(doc.paragraphs)
+    add_to_full_text(doc.tables)
+
+    # 3. Footers
+    for section in doc.sections:
+        add_to_full_text(section.footer.paragraphs)
+        add_to_full_text(section.footer.tables)
+
+    # 4. Textboxes (w:txbxContent)
     for element in doc.element.body.iter():
        if element.tag.endswith('txbxContent'):
            for p in element.findall(qn('w:p')):
@@ -206,9 +192,11 @@ def extract_text_from_docx(docx_path: str) -> str:
                    for t in r.findall(qn('w:t')):
                        if t.text: text += t.text
                if text.strip():
+                   # Basic text cleaning and check for textboxes
                    full_text.append(text)
 
     return '\n'.join(full_text)
+
 
 # Removed extract_text_from_pdf dependency to ensure Sync
 
@@ -226,20 +214,22 @@ def analyze_gaps(docx_path: str, job_description: str, pdf_path: str = None) -> 
     You are an expert Resume Strategist.
     
     GOAL: 
-    Tailor the resume to significantly increase the chances of being shortlisted.
+    Tailor the resume to significantly increase the chances of being shortlisted by providing thorough, section-by-section improvements.
     
-    CRITICAL INSTRUCTION:
-    You MUST analyze and output results for the following sections:
-    1. "Professional Summary" (If missing, suggest ADDING it based on the resume content).
-    2. "Experience"
-    3. "Projects" (If missing, look for project-like entries in Experience or suggest adding relevant side projects).
-    4. "Skills"
-    5. "Education"
+    CRITICAL INSTRUCTIONS:
+    1. EXHAUSTIVE ANALYSIS: You MUST analyze and provide suggestions for EVERY major section identified in the resume. 
+    2. REQUIRED SECTIONS: You MUST include at least these 5 sections in your analysis:
+       - "Professional Summary" (If missing, look for a 'Passion' or 'Profile' blurb, or suggest ADDING it if completely absent).
+       - "Experience" / "Professional Experience"
+       - "Projects"
+       - "Technical Skills" / "Skills"
+       - "Education"
+    3. NO SKIPPING: Do not combine sections or omit any detail. If a JD requirement matches a hidden or weak point in the resume, suggest an edit.
+    4. PRESERVE INTENT: While tailoring, maintain the factual integrity of the user's background.
     
     CONSTRAINTS:
-    1. STRICTLY PRESERVE the original file structure. 
-    2. Suggest specific text replacements.
-    3. If a section exists but is named differently (e.g. "Profile" instead of "Professional Summary"), use the original name in 'section_name' but apply the strategy for that type.
+    1. STRICTLY PRESERVE the original document's textual hooks for 'target_text'. 
+    2. If a section is split into multiple parts (e.g., in a sidebar and main body), treat it as one thematic section in the output.
     
     SCORING:
     - Assess the initial resume against the JD (0-100).
@@ -248,28 +238,22 @@ def analyze_gaps(docx_path: str, job_description: str, pdf_path: str = None) -> 
     STRATEGIES (Section-Specific):
     
     1. **Professional Summary**:
-       - Ensure it matches the Job Title in the JD.
-       - Highlight top 3 achievements relevant to the JD.
-       - Use keywords from the JD (soft & hard skills).
+       - Integrate 3-4 key industry keywords from the JD.
+       - Highlight years of experience and top technical achievement.
     
     2. **Experience**:
-       - Quantify results using the STAR method (Situation, Task, Action, Result) where possible.
-       - Use strong action verbs (e.g., "Spearheaded," "Optimized," "Architected").
-       - Explicitly integrate key technical and functional keywords from the JD.
-       - Remove irrelevant responsibilities that dilute the impact.
+       - Quantify results (e.g., "% improved", "$ saved", "X users").
+       - Start bullets with strong action verbs.
+       - Integrate tech stack mentioned in the JD directly into bullets.
     
     3. **Projects**:
-       - Highlight technical problem-solving.
-       - Mention specific technologies used (matching JD if applicable).
-       - Focus on the *impact* of the project.
+       - Focus on the "So What?" – the outcome and the tech used.
        
     4. **Skills**:
-       - Prioritize hard skills found in the JD.
-       - Group skills logically if they aren't already.
+       - Organize into categories (e.g., Languages, Frameworks, Tools) if missing.
        
     5. **Education**:
-       - DO NOT MODIFY this section unless there is a factual error or major formatting issue. 
-       - Preserve the original text exactly as is by default.
+       - Keep it brief but ensure it meets any minimum requirements in the JD.
     
     OUTPUT FORMAT:
     Return a JSON object:
@@ -278,17 +262,17 @@ def analyze_gaps(docx_path: str, job_description: str, pdf_path: str = None) -> 
         "projected_score": <int>,
         "sections": [
             {{
-                "section_name": "<Original Section Header or 'New Section'>",
+                "section_name": "<Exact Header name from resume>",
                 "section_type": "<Summary|Experience|Projects|Skills|Education|Other>",
                 "original_text": "<full original text of this section>",
-                "gaps": ["<gap1>", ...],
-                "suggestions": ["<high-level advice 1>", "<advice 2>", ...],
+                "gaps": ["<specific keyword or experience missing from this section>", ...],
+                "suggestions": ["<strategic advice for this section>", ...],
                 "edits": [
                     {{
-                        "target_text": "<exact match>",
-                        "new_content": "<replacement>",
+                        "target_text": "<exact substring to replace>",
+                        "new_content": "<improved content>",
                         "action": "replace",
-                        "rationale": "<reason>"
+                        "rationale": "<why this change helps match the JD>"
                     }}
                 ]
             }}
