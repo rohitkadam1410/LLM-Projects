@@ -28,24 +28,7 @@ class AnalysisResult(BaseModel):
     initial_score: int
     projected_score: int
 
-def extract_text_from_docx(docx_path: str) -> str:
-    doc = Document(docx_path)
-    full_text = []
-    
-    # Extract from paragraphs
-    for para in doc.paragraphs:
-        if para.text.strip():
-            full_text.append(para.text)
-            
-    # Extract from tables
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for para in cell.paragraphs:
-                    if para.text.strip():
-                        full_text.append(para.text)
-                        
-    return '\n'.join(full_text)
+
 
 import re
 
