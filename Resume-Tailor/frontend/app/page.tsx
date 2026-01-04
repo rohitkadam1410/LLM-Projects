@@ -43,6 +43,7 @@ export default function TailorPage() {
     // Save/View State
     const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
     const [isSaving, setIsSaving] = useState(false);
+    const [isDownloading, setIsDownloading] = useState(false);
     const [savedResumeId, setSavedResumeId] = useState<number | null>(null);
 
     // Trial tracking
@@ -150,6 +151,46 @@ export default function TailorPage() {
         }
     };
 
+    const handleDownload = async () => {
+        if (!sections || !uploadedFilename) return;
+
+        setIsDownloading(true);
+        setStatus('Generating Word Document...');
+
+        try {
+            const response = await fetch('http://localhost:8000/generate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    filename: uploadedFilename,
+                    sections: sections
+                }),
+            });
+            const data = await response.json();
+            if (data.download_url) {
+                // Trigger download
+                const link = document.createElement('a');
+                link.href = data.download_url;
+                link.download = data.pdf_path ? data.pdf_path.split(/[\\/]/).pop() : 'resume.docx';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                setStatus('Download started!');
+            } else {
+                alert("Failed to generate download link.");
+                setStatus('Download failed.');
+            }
+        } catch (error) {
+            console.error("Error downloading:", error);
+            alert("Error downloading file.");
+            setStatus('Download failed.');
+        } finally {
+            setIsDownloading(false);
+        }
+    };
+
     const handleUpdateSuggestion = (sectionIndex: number, editIndex: number, newValue: string) => {
         if (!sections) return;
         const newSections = [...sections];
@@ -197,7 +238,9 @@ export default function TailorPage() {
                     tailored_sections: sections,
                     company_name: finalCompany,
                     job_role: finalRole,
-                    job_description: jobDescription
+                    job_description: jobDescription,
+                    initial_score: initialScore,
+                    projected_score: projectedScore
                 }),
             });
 
@@ -601,7 +644,16 @@ export default function TailorPage() {
                                         <div className="border border-slate-200 rounded-xl overflow-hidden flex flex-col">
                                             <div className="bg-slate-50 p-3 border-b border-slate-200 font-bold text-slate-500 uppercase text-xs tracking-wider">Original</div>
                                             <div className="p-4 overflow-y-auto bg-slate-50/50 flex-1 whitespace-pre-wrap text-sm text-slate-600 font-mono">
-                                                {sections.map(s => s.original_text).join('\n\n')}
+                                                {sections.map((section, idx) => (
+                                                    <div key={idx} className="mb-6 last:mb-0">
+                                                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 border-b border-slate-200 pb-1">
+                                                            {section.section_name}
+                                                        </h4>
+                                                        <div className="leading-relaxed">
+                                                            {section.original_text}
+                                                        </div>
+                                                    </div>
+                                                ))}
                                             </div>
                                         </div>
 
@@ -612,13 +664,26 @@ export default function TailorPage() {
                                                 <span className="bg-green-200 text-green-800 px-2 rounded-full text-[10px]">Ready</span>
                                             </div>
                                             <div className="p-4 overflow-y-auto bg-white flex-1 whitespace-pre-wrap text-sm text-slate-800 font-medium">
-                                                {sections.map(s => {
-                                                    let text = s.original_text || "";
-                                                    s.edits.forEach(edit => {
-                                                        text = text.replace(edit.target_text, edit.new_content);
-                                                    });
-                                                    return text;
-                                                }).join('\n\n')}
+                                                {sections.map((section, idx) => {
+                                                    let content = section.original_text || "";
+                                                    if (section.edits) {
+                                                        section.edits.forEach(edit => {
+                                                            if (edit.target_text && edit.new_content) {
+                                                                content = content.split(edit.target_text).join(edit.new_content);
+                                                            }
+                                                        });
+                                                    }
+                                                    return (
+                                                        <div key={idx} className="mb-6 last:mb-0">
+                                                            <h4 className="text-xs font-bold text-green-700 uppercase tracking-widest mb-2 border-b border-green-100 pb-1">
+                                                                {section.section_name}
+                                                            </h4>
+                                                            <div className="leading-relaxed">
+                                                                {content}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
                                         </div>
                                     </div>
@@ -644,7 +709,34 @@ export default function TailorPage() {
                                 </div>
                             )}
 
+
                             {/* Success Area - Removed PDF Download */}
+                            {viewMode === 'preview' && sections && (
+                                <div className="mt-4 flex justify-center">
+                                    <button
+                                        onClick={handleDownload}
+                                        disabled={isDownloading}
+                                        className={`px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold text-lg hover:bg-indigo-700 transition-all transform hover:scale-105 shadow-lg flex items-center
+                                        ${isDownloading ? 'opacity-70 cursor-wait' : ''}`}
+                                    >
+                                        {isDownloading ? (
+                                            <>
+                                                <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                </svg>
+                                                Generating...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                                Download Word Resume
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            )}
+
 
                             {status && !downloadUrl && !sections && <p className="text-center text-slate-500 mt-4 animate-pulse">{status}</p>}
                         </div>

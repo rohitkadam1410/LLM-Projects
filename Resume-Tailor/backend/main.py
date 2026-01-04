@@ -271,11 +271,17 @@ async def analyze_resume(resume: UploadFile = File(...), job_description: str = 
 @app.post("/generate")
 async def generate_resume_endpoint(request: EditsRequest):
     # Reconstruct paths using the filename handle provided by frontend
+    # 1. Try temp location first
     temp_pdf_path = request.filename
     docx_path = temp_pdf_path.replace(".pdf", ".docx")
     
+    # 2. If not found, try saved_resumes location
     if not os.path.exists(docx_path):
-        return {"error": "Session expired or file not found. Please upload again."}
+        saved_docx_path = os.path.join("saved_resumes", os.path.basename(docx_path))
+        if os.path.exists(saved_docx_path):
+            docx_path = saved_docx_path
+        else:
+            return {"error": "Session expired or file not found. Please upload again."}
         
     # 3. Apply edits
     tailored_docx_path = generate_tailored_resume(docx_path, request.sections)
@@ -444,6 +450,8 @@ class SaveResumeRequest(BaseModel):
     original_text: str
     tailored_text: str
     tailored_sections: List[Dict]
+    initial_score: Optional[int] = 0
+    projected_score: Optional[int] = 0
     # Optional fields for auto-creating application
     company_name: Optional[str] = None
     job_role: Optional[str] = None
@@ -457,12 +465,28 @@ def save_resume(
 ):
     import json
     
+    # Persist the temp file to a permanent location
+    os.makedirs("saved_resumes", exist_ok=True)
+    temp_path = req.filename
+    # Handle both PDF and DOCX versions
+    temp_docx = temp_path.replace(".pdf", ".docx")
+    
+    saved_path = os.path.join("saved_resumes", req.filename)
+    saved_docx_path = os.path.join("saved_resumes", req.filename.replace(".pdf", ".docx"))
+    
+    if os.path.exists(temp_path):
+        shutil.copy2(temp_path, saved_path)
+    if os.path.exists(temp_docx):
+        shutil.copy2(temp_docx, saved_docx_path)
+
     saved_resume = SavedResume(
         user_id=current_user.id,
         filename=req.filename,
         original_text=req.original_text,
         tailored_text=req.tailored_text,
-        tailored_sections_json=json.dumps(req.tailored_sections)
+        tailored_sections_json=json.dumps(req.tailored_sections),
+        initial_score=req.initial_score,
+        projected_score=req.projected_score
     )
     session.add(saved_resume)
     session.commit()
@@ -477,7 +501,8 @@ def save_resume(
             job_role=req.job_role,
             status="Started",
             job_description=req.job_description,
-            saved_resume_id=saved_resume.id
+            saved_resume_id=saved_resume.id,
+            resume_path=saved_path if os.path.exists(saved_path) else None 
         )
         session.add(new_app)
         session.commit()
@@ -507,7 +532,9 @@ def get_resume(
         "original_text": resume.original_text,
         "tailored_text": resume.tailored_text,
         "tailored_sections": json.loads(resume.tailored_sections_json),
-        "created_at": resume.created_at
+        "created_at": resume.created_at,
+        "initial_score": resume.initial_score,
+        "projected_score": resume.projected_score
     }
 
 @app.patch("/api/resume/{resume_id}")

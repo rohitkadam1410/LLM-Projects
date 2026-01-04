@@ -47,39 +47,42 @@ def safe_replace_text(paragraph, target: str, replacement: str):
     if norm_target not in norm_para_text:
         return False
 
+    # Check for multi-line or bulleted content
+    # If the LLM returned markdown bullets, we want to strip them because 
+    # pasting "* Item" into a DOCX doesn't make it a bullet list, just text.
+    # We will strip them to keep it clean.
+    clean_replacement = replacement
+    if '\n' in replacement or any(line.strip().startswith(('* ', '- ', '• ')) for line in replacement.split('\n')):
+         clean_replacement = re.sub(r'(^|\n)[\*\-\•]\s+', r'\1', replacement)
+
+    # Use the cleaned replacement for the actual operation
+    final_replacement = clean_replacement
+
     # 1. Try single run replacement (exact match first)
     for run in paragraph.runs:
         if target in run.text:
-            run.text = run.text.replace(target, replacement)
+            run.text = run.text.replace(target, final_replacement)
             return True
 
     # 2. Relaxed match: Check if normalized target is in normalized run text
-    # This handles cases where PDF extraction added extra spaces within a run
     for run in paragraph.runs:
         if norm_target in normalize_text(run.text):
-            # We have to be careful here. If we replace in the run, we might destroy formatting
-            # if the run contained more than just the target.
-            # But since it's in a single run, it's safer.
-            # We'll use a regex to replace that ignores whitespace.
             pattern = re.escape(target).replace(r'\ ', r'\s+')
-            run.text = re.sub(pattern, replacement, run.text)
+            run.text = re.sub(pattern, final_replacement, run.text)
             return True
 
-    # 3. Fallback: Full paragraph reconstruction if target spans runs
-    # This is where most PDF-to-DOCX artifacts happen.
+    # 3. Fallback: Full paragraph reconstruction
     style_run = paragraph.runs[0] if paragraph.runs else None
     font_name = style_run.font.name if style_run else None
     font_size = style_run.font.size if style_run else None
     bold = style_run.bold if style_run else None
     italic = style_run.italic if style_run else None
     
-    # regex replace that ignores internal whitespace
     pattern = re.escape(target).replace(r'\ ', r'\s+')
-    new_text = re.sub(pattern, replacement, paragraph.text)
+    new_text = re.sub(pattern, final_replacement, paragraph.text)
     
     if new_text != paragraph.text:
         paragraph.text = new_text
-        # Re-apply font to all runs
         for run in paragraph.runs:
             if font_name: run.font.name = font_name
             if font_size: run.font.size = font_size
@@ -217,19 +220,17 @@ def analyze_gaps(docx_path: str, job_description: str, pdf_path: str = None) -> 
     Tailor the resume to significantly increase the chances of being shortlisted by providing thorough, section-by-section improvements.
     
     CRITICAL INSTRUCTIONS:
-    1. EXHAUSTIVE ANALYSIS: You MUST analyze and provide suggestions for EVERY major section identified in the resume. 
-    2. REQUIRED SECTIONS: You MUST include at least these 5 sections in your analysis:
-       - "Professional Summary" (If missing, look for a 'Passion' or 'Profile' blurb, or suggest ADDING it if completely absent).
-       - "Experience" / "Professional Experience"
-       - "Projects"
-       - "Technical Skills" / "Skills"
-       - "Education"
-    3. NO SKIPPING: Do not combine sections or omit any detail. If a JD requirement matches a hidden or weak point in the resume, suggest an edit.
-    4. PRESERVE INTENT: While tailoring, maintain the factual integrity of the user's background.
+    1. EXHAUSTIVE ANALYSIS: You MUST identify and analyze EVERY single section present in the resume text. Do not limit yourself to standard sections.
+    2. SECTION DISCOVERY: 
+       - Look for standard sections: "Professional Summary", "Experience", "Projects", "Skills", "Education".
+       - ACTIVELY SEARCH for additional sections such as "Conferences", "Patents", "Publications", "Volunteering", "Certifications", "Awards", etc.
+       - If a header appears on one line (e.g., "Patents") but its content appears much later due to PDF column parsing, you MUST associate them. Scan the entire text to find the content that logically belongs to a header.
+    3. NO SKIPPING: Do not omit any section found in the text. Provide specific gaps and suggestions for EVERYTHING.
+    4. MISSING SECTIONS: If "Professional Summary" is completely absent, suggest ADDING it.
     
     CONSTRAINTS:
     1. STRICTLY PRESERVE the original document's textual hooks for 'target_text'. 
-    2. If a section is split into multiple parts (e.g., in a sidebar and main body), treat it as one thematic section in the output.
+    2. If a section is split into multiple parts, combine them for analysis but keep edits targeted to specific text blocks.
     
     SCORING:
     - Assess the initial resume against the JD (0-100).
@@ -237,23 +238,11 @@ def analyze_gaps(docx_path: str, job_description: str, pdf_path: str = None) -> 
     
     STRATEGIES (Section-Specific):
     
-    1. **Professional Summary**:
-       - Integrate 3-4 key industry keywords from the JD.
-       - Highlight years of experience and top technical achievement.
-    
-    2. **Experience**:
-       - Quantify results (e.g., "% improved", "$ saved", "X users").
-       - Start bullets with strong action verbs.
-       - Integrate tech stack mentioned in the JD directly into bullets.
-    
-    3. **Projects**:
-       - Focus on the "So What?" – the outcome and the tech used.
-       
-    4. **Skills**:
-       - Organize into categories (e.g., Languages, Frameworks, Tools) if missing.
-       
-    5. **Education**:
-       - Keep it brief but ensure it meets any minimum requirements in the JD.
+    1. **Professional Summary**: Integrate keywords, highlighting years of experience.
+    2. **Experience**: Quantify results, use action verbs, match tech stack.
+    3. **Projects**: Focus on outcomes and technology.
+    4. **Skills**: Categorize if messy.
+    5. **Education/Conferences/Patents/Publications**: Ensure formatting is clean and relevant details are highlighted to showcase authority and expertise.
     
     OUTPUT FORMAT:
     Return a JSON object:
@@ -263,7 +252,7 @@ def analyze_gaps(docx_path: str, job_description: str, pdf_path: str = None) -> 
         "sections": [
             {{
                 "section_name": "<Exact Header name from resume>",
-                "section_type": "<Summary|Experience|Projects|Skills|Education|Other>",
+                "section_type": "<Summary|Experience|Projects|Skills|Education|Conferences|Patents|Publications|Other>",
                 "original_text": "<full original text of this section>",
                 "gaps": ["<specific keyword or experience missing from this section>", ...],
                 "suggestions": ["<strategic advice for this section>", ...],

@@ -31,7 +31,14 @@ export default function ApplicationList({ refreshTrigger }: { refreshTrigger: nu
                 'Authorization': `Bearer ${token}`
             }
         })
-            .then(res => res.json())
+            .then(res => {
+                if (res.status === 401) {
+                    localStorage.removeItem('auth_token');
+                    router.push('/login');
+                    throw new Error("Unauthorized");
+                }
+                return res.json();
+            })
             .then(data => {
                 if (Array.isArray(data)) {
                     setApplications(data);
@@ -39,7 +46,11 @@ export default function ApplicationList({ refreshTrigger }: { refreshTrigger: nu
                     console.error("Invalid response from applications:", data);
                 }
             })
-            .catch(err => console.error("Error fetching applications:", err));
+            .catch(err => {
+                if (err.message !== "Unauthorized") {
+                    console.error("Error fetching applications:", err);
+                }
+            });
     }, [refreshTrigger, router]);
 
     const fetchTimeline = async (appId: number) => {
