@@ -3,6 +3,10 @@
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { Toast } from '@/components/Toast';
+
+// Key for persisting pre-login state
+const TEMP_STATE_KEY = 'tailor_temp_state';
 
 interface EditSuggestion {
     target_text: string;
@@ -45,6 +49,8 @@ export default function TailorPage() {
     const [isSaving, setIsSaving] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
     const [savedResumeId, setSavedResumeId] = useState<number | null>(null);
+    const [showSaveModal, setShowSaveModal] = useState(false);
+    const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
     // Trial tracking
     const [usageCount, setUsageCount] = useState(0);
@@ -54,23 +60,60 @@ export default function TailorPage() {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     // Check authentication and usage count on mount
+    // Check authentication, usage count, and restore state on mount
     useEffect(() => {
-        // Check if user is authenticated
-        const token = localStorage.getItem('auth_token');
-        setIsAuthenticated(!!token);
+        // 1. Check Auth & Usage
+        const checkStatus = async () => {
+            const token = localStorage.getItem('auth_token');
+            setIsAuthenticated(!!token);
 
-        // Get usage count
-        const count = parseInt(localStorage.getItem('tailor_usage_count') || '0');
-        setUsageCount(count);
+            try {
+                const headers: HeadersInit = {};
+                if (token) headers['Authorization'] = `Bearer ${token}`;
 
-        // Show warning if approaching limit (still have 1 use left)
-        if (!token && count === 1) {
-            setShowTrialWarning(true);
+                const res = await fetch('http://localhost:8000/api/usage', { headers });
+                if (res.ok) {
+                    const data = await res.json();
+                    setUsageCount(data.usage_count);
+                    // If backend says we are over limit and not unlimited, enforce it
+                    if (!data.is_unlimited && data.remaining === 0) {
+                        setUsageCount(2); // Local marker for limit reached
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to sync usage:", err);
+            }
+        };
+
+        checkStatus();
+
+        // 2. Restore pending state if returning from login
+        const savedState = localStorage.getItem(TEMP_STATE_KEY);
+        if (savedState) {
+            try {
+                const parsed = JSON.parse(savedState);
+                if (parsed.sections) setSections(parsed.sections);
+                if (parsed.jobDescription) setJobDescription(parsed.jobDescription);
+                if (parsed.companyName) setCompanyName(parsed.companyName);
+                if (parsed.jobRole) setJobRole(parsed.jobRole);
+                if (parsed.uploadedFilename) setUploadedFilename(parsed.uploadedFilename);
+                if (parsed.initialScore) setInitialScore(parsed.initialScore);
+                if (parsed.projectedScore) setProjectedScore(parsed.projectedScore);
+
+                // If we have restored sections, we probably want to show the Save modal if that's where they left off
+                // Or at least show the sections
+                setToast({ message: "Resumed your session!", type: 'success' });
+
+                // Clear it so we don't restore it again inappropriately
+                localStorage.removeItem(TEMP_STATE_KEY);
+            } catch (e) {
+                console.error("Failed to restore state", e);
+            }
         }
 
-        // Check for passed JD from Tracker
+        // Check for passed JD from Tracker (lower priority if temp state exists)
         const savedJD = localStorage.getItem('tailor_jd');
-        if (savedJD) {
+        if (savedJD && !savedState) {
             setJobDescription(savedJD);
             localStorage.removeItem('tailor_jd');
         }
@@ -102,7 +145,7 @@ export default function TailorPage() {
             }
         } catch (error) {
             console.error('Error fetching JD:', error);
-            alert('Failed to fetch Job Description. Please check the URL.');
+            setToast({ message: 'Failed to fetch Job Description. Please check the URL.', type: 'error' });
         } finally {
             setIsFetchingJd(false);
         }
@@ -127,10 +170,25 @@ export default function TailorPage() {
         formData.append('job_description', jobDescription);
 
         try {
+            const token = localStorage.getItem('auth_token');
+            const headers: HeadersInit = {};
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+
             const response = await fetch('http://localhost:8000/analyze', {
                 method: 'POST',
+                headers: headers,
                 body: formData,
             });
+
+            if (response.status === 403) {
+                setUsageCount(2); // Force limit reached state
+                setToast({ message: 'Free trial limit reached. Please login.', type: 'error' });
+                setStatus('Free trial limit reached.');
+                setIsLoading(false);
+                return;
+            }
 
             const data = await response.json();
             if (data.sections) {
@@ -138,7 +196,18 @@ export default function TailorPage() {
                 setUploadedFilename(data.filename);
                 setInitialScore(data.initial_score || 0);
                 setProjectedScore(data.projected_score || 0);
+
+                // Auto-fill metadata
+                if (data.company_name && data.company_name !== "Unknown Company") setCompanyName(data.company_name);
+                if (data.job_title && data.job_title !== "Unknown Role") setJobRole(data.job_title);
+
+                // Increment local usage count to reflect the new analysis
+                if (!isAuthenticated) {
+                    setUsageCount(prev => prev + 1);
+                }
+
                 setStatus('Analysis complete! Please review the suggestions below.');
+                setToast({ message: 'Analysis complete!', type: 'success' });
             } else {
                 setStatus('Something went wrong during analysis. Please try again.');
                 console.log(data);
@@ -179,12 +248,12 @@ export default function TailorPage() {
                 document.body.removeChild(link);
                 setStatus('Download started!');
             } else {
-                alert("Failed to generate download link.");
+                setToast({ message: "Failed to generate download link.", type: 'error' });
                 setStatus('Download failed.');
             }
         } catch (error) {
             console.error("Error downloading:", error);
-            alert("Error downloading file.");
+            setToast({ message: "Error downloading file.", type: 'error' });
             setStatus('Download failed.');
         } finally {
             setIsDownloading(false);
@@ -199,8 +268,23 @@ export default function TailorPage() {
     };
 
     const handleSaveResume = async (overrideCompanyName?: string, overrideJobRole?: string) => {
-        if (!sections || !isAuthenticated) {
-            if (!isAuthenticated) router.push('/login');
+        if (!sections) return;
+
+        if (!isAuthenticated) {
+            // Persist state before redirecting
+            const stateToSave = {
+                sections,
+                jobDescription,
+                companyName: overrideCompanyName || companyName,
+                jobRole: overrideJobRole || jobRole,
+                uploadedFilename,
+                initialScore,
+                projectedScore
+            };
+            localStorage.setItem(TEMP_STATE_KEY, JSON.stringify(stateToSave));
+
+            setToast({ message: "Please login to save. Redirecting...", type: 'info' });
+            setTimeout(() => router.push('/login'), 1000);
             return;
         }
 
@@ -278,8 +362,8 @@ export default function TailorPage() {
         <div className="p-8 max-w-7xl mx-auto">
 
             {/* Small Trial Indicator - Top Right */}
-            {!isAuthenticated && (
-                <div className="fixed top-4 right-4 z-50">
+            {!isAuthenticated ? (
+                <div className="fixed top-4 right-4 z-50 animate-fade-in">
                     <Link
                         href="/login"
                         className="flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-full shadow-lg hover:shadow-xl transition-all hover:scale-105 group"
@@ -288,8 +372,8 @@ export default function TailorPage() {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                         </svg>
                         <span className="text-sm font-semibold">
-                            {usageCount === 0 && "Login • 2 free uses"}
-                            {usageCount === 1 && "Login • 1 use left"}
+                            {usageCount === 0 && "Login • 2 free daily uses"}
+                            {usageCount === 1 && "Login • 1 daily use left"}
                             {usageCount >= 2 && "Login Required"}
                         </span>
                         {usageCount < 2 && (
@@ -298,6 +382,19 @@ export default function TailorPage() {
                             </span>
                         )}
                     </Link>
+                </div>
+            ) : (
+                <div className="fixed top-4 right-4 z-50 animate-fade-in">
+                    <button
+                        onClick={() => {
+                            localStorage.removeItem('auth_token');
+                            window.location.reload(); // Hard reload to reset state and re-check IP usage
+                        }}
+                        className="flex items-center space-x-2 px-4 py-2 bg-white text-slate-600 rounded-full shadow-md hover:shadow-lg transition-all hover:bg-slate-50 border border-slate-200"
+                    >
+                        <span className="text-sm font-bold">Logout</span>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
+                    </button>
                 </div>
             )}
 
@@ -312,7 +409,7 @@ export default function TailorPage() {
                             <div>
                                 <p className="text-white font-bold">Trial Limit Notice</p>
                                 <p className="text-white/90 text-sm">
-                                    You have <span className="font-bold">1 free use</span> remaining.
+                                    You have <span className="font-bold">1 free daily use</span> remaining.
                                     Login or create an account for unlimited access!
                                 </p>
                             </div>
@@ -338,7 +435,7 @@ export default function TailorPage() {
                         </div>
                         <h3 className="text-2xl font-extrabold mb-2">Free Trial Limit Reached</h3>
                         <p className="text-white/90 mb-6">
-                            You&apos;ve used your 2 free tailorings! Create a free account to continue with unlimited access.
+                            You&apos;ve used your 2 free daily tailorings! Create a free account to continue with unlimited access.
                         </p>
                         <Link
                             href="/login"
@@ -594,26 +691,7 @@ export default function TailorPage() {
                                     </div>
 
                                     <button
-                                        onClick={() => {
-                                            let currentRole = jobRole;
-                                            let currentCompany = companyName;
-
-                                            if (!currentCompany || !currentRole) {
-                                                const role = prompt("Please enter the Job Role for tracking:", currentRole || "");
-                                                const company = prompt("Please enter the Company Name for tracking:", currentCompany || "");
-
-                                                if (role) {
-                                                    setJobRole(role);
-                                                    currentRole = role;
-                                                }
-                                                if (company) {
-                                                    setCompanyName(company);
-                                                    currentCompany = company;
-                                                }
-                                            }
-                                            // Pass the current values (from state or prompt) directly to the handler
-                                            handleSaveResume(currentCompany, currentRole);
-                                        }}
+                                        onClick={() => setShowSaveModal(true)}
                                         disabled={isSaving}
                                         className={`w-full py-4 px-6 rounded-xl font-bold text-lg shadow-lg transition-all transform duration-200 mt-6
                     ${isSaving
@@ -800,6 +878,59 @@ export default function TailorPage() {
                     </div>
                 </div>
             </div>
-        </div >
+
+            {/* Save Modal */}
+            {showSaveModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 transform transition-all scale-100">
+                        <h3 className="text-xl font-bold text-slate-800 mb-4">Save Application</h3>
+                        <p className="text-slate-600 mb-6 text-sm">Review the details below before saving to your tracker.</p>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-semibold text-slate-700 mb-1">Company Name</label>
+                                <input
+                                    type="text"
+                                    value={companyName}
+                                    onChange={(e) => setCompanyName(e.target.value)}
+                                    className="w-full p-3 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all"
+                                    placeholder="e.g. Google"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-semibold text-slate-700 mb-1">Job Role</label>
+                                <input
+                                    type="text"
+                                    value={jobRole}
+                                    onChange={(e) => setJobRole(e.target.value)}
+                                    className="w-full p-3 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all"
+                                    placeholder="e.g. Senior Software Engineer"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3 mt-8">
+                            <button
+                                onClick={() => setShowSaveModal(false)}
+                                className="flex-1 py-3 px-4 rounded-xl font-bold text-slate-600 hover:bg-slate-100 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setShowSaveModal(false);
+                                    handleSaveResume();
+                                }}
+                                className="flex-1 py-3 px-4 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all hover:-translate-y-0.5"
+                            >
+                                Save Resume
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        </div>
     );
 }

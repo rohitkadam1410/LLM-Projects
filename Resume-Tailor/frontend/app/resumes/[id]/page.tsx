@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { Toast } from '@/components/Toast';
 
 // ... (retain interfaces)
 
@@ -43,6 +44,7 @@ export default function ResumeViewerPage() {
     const [isSaving, setIsSaving] = useState(false);
     const [viewMode, setViewMode] = useState<'edit' | 'preview'>('preview'); // Default to preview
     const [isDownloading, setIsDownloading] = useState(false);
+    const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
     useEffect(() => {
         const fetchResume = async () => {
@@ -118,14 +120,14 @@ export default function ResumeViewerPage() {
                 // data not needed if not used, or just await response.json() if side-effect
                 await response.json();
                 setResume(prev => prev ? { ...prev, tailored_text: tailoredText, tailored_sections: sections } : null);
-                alert('Changes saved successfully!');
+                setToast({ message: 'Changes saved successfully!', type: 'success' });
                 setViewMode('preview');
             } else {
-                alert('Failed to save changes.');
+                setToast({ message: 'Failed to save changes.', type: 'error' });
             }
         } catch (error) {
             console.error('Error saving changes:', error);
-            alert('Error saving changes.');
+            setToast({ message: 'Error saving changes.', type: 'error' });
         } finally {
             setIsSaving(false);
         }
@@ -260,13 +262,19 @@ export default function ResumeViewerPage() {
                                             // Formatting helper for bullets
                                             const renderContent = (text: string) => {
                                                 if (!text) return null;
+                                                // Normalize newlines and ensure bullets like '•' have a preceding newline if they are inline
+                                                const normalizedText = text
+                                                    .replace(/\r\n/g, '\n')
+                                                    .replace(/\r/g, '\n')
+                                                    .replace(/([^\n])\s*([•\-\*])\s+/g, '$1\n$2 ');
+
                                                 // Check if text has markdown style bullets
-                                                const hasBullets = text.match(/(^|\n)[\*\-\•]\s/);
+                                                const hasBullets = normalizedText.match(/(^|\n)\s*[\*\-\•]\s/);
 
                                                 if (!hasBullets) return <div className="whitespace-pre-wrap">{text}</div>;
 
                                                 // Split by lines
-                                                const lines = text.split('\n');
+                                                const lines = normalizedText.split('\n');
                                                 const elements: React.ReactNode[] = [];
                                                 let inList = false;
                                                 let listItems: string[] = [];
@@ -306,11 +314,52 @@ export default function ResumeViewerPage() {
                                                 return <div>{elements}</div>;
                                             };
 
+                                            const handleCopySection = (text: string) => {
+                                                if (navigator.clipboard && window.isSecureContext) {
+                                                    navigator.clipboard.writeText(text).then(() => {
+                                                        setToast({ message: 'Section content copied!', type: 'success' });
+                                                    }, (err) => {
+                                                        console.error('Async: Could not copy text: ', err);
+                                                        fallbackCopyTextToClipboard(text);
+                                                    });
+                                                } else {
+                                                    fallbackCopyTextToClipboard(text);
+                                                }
+                                            };
+
+                                            const fallbackCopyTextToClipboard = (text: string) => {
+                                                const textArea = document.createElement("textarea");
+                                                textArea.value = text;
+                                                textArea.style.top = "0";
+                                                textArea.style.left = "0";
+                                                textArea.style.position = "fixed";
+                                                document.body.appendChild(textArea);
+                                                textArea.focus();
+                                                textArea.select();
+                                                try {
+                                                    document.execCommand('copy');
+                                                    setToast({ message: 'Section content copied!', type: 'success' });
+                                                } catch (err) {
+                                                    console.error('Fallback: Oops, unable to copy', err);
+                                                    setToast({ message: 'Unable to copy to clipboard.', type: 'error' });
+                                                }
+                                                document.body.removeChild(textArea);
+                                            };
+
                                             return (
-                                                <div key={idx} className="mb-6 last:mb-0">
-                                                    <h4 className="text-xs font-bold text-indigo-500 uppercase tracking-widest mb-2 border-b border-indigo-50 pb-1">
-                                                        {section.section_name}
-                                                    </h4>
+                                                <div key={idx} className="mb-6 last:mb-0 group/section">
+                                                    <div className="flex justify-between items-center mb-2 border-b border-indigo-50 pb-1">
+                                                        <h4 className="text-xs font-bold text-indigo-500 uppercase tracking-widest">
+                                                            {section.section_name}
+                                                        </h4>
+                                                        <button
+                                                            onClick={() => handleCopySection(content)}
+                                                            className="text-slate-400 hover:text-indigo-600 transition-colors opacity-0 group-hover/section:opacity-100 p-1"
+                                                            title="Copy to clipboard"
+                                                        >
+                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
+                                                        </button>
+                                                    </div>
                                                     <div className="leading-relaxed">
                                                         {renderContent(content)}
                                                     </div>
@@ -461,6 +510,7 @@ export default function ResumeViewerPage() {
                     </div>
                 </div>
             </div>
-        </div >
+            {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+        </div>
     );
 }

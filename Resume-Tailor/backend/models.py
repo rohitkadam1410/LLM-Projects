@@ -63,6 +63,13 @@ class SavedResume(SQLModel, table=True):
     user: Optional[User] = Relationship(back_populates="saved_resumes")
     application: Optional[Application] = Relationship(back_populates="saved_resume")
 
+class UsageLog(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    ip_address: str = Field(index=True)
+    user_id: Optional[int] = Field(default=None, index=True)
+    action: str = Field(default="tailor") # e.g. "tailor" or "generate"
+    created_at: datetime = Field(default_factory=datetime.now)
+
 # Update User model to include relationship
 # We need to do this carefully if User is already defined above without this field.
 # Since SQLModel resolves forward references, we might need to update User class or utilize the string forward reference we just added.

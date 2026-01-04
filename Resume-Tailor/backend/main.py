@@ -1,10 +1,10 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, status
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends, status, Request
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from typing import List, Optional
 from database import init_db, get_session
-from models import Application, TimelineEvent, User, SurveyResponse, SavedResume
+from models import Application, TimelineEvent, User, SurveyResponse, SavedResume, UsageLog
 from sqlmodel import Session, select
 from datetime import datetime, timedelta
 import shutil
@@ -78,6 +78,25 @@ async def get_current_user(token: str = Depends(oauth2_scheme), session: Session
     if user is None:
         raise credentials_exception
     return user
+
+
+async def get_optional_user(
+    request: Request,
+    session: Session = Depends(get_session)
+) -> Optional[User]:
+    auth_header = request.headers.get('Authorization')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return None
+    
+    token = auth_header.split(' ')[1]
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            return None
+        return session.exec(select(User).where(User.email == email)).first()
+    except Exception:
+        return None
 
 def validate_email(email: str) -> bool:
     """Validate email format"""
@@ -242,8 +261,64 @@ class EditsRequest(BaseModel):
     filename: str
     sections: List[Dict]
 
+@app.get("/api/usage")
+async def check_usage(
+    request: Request,
+    session: Session = Depends(get_session)
+):
+    user = await get_optional_user(request, session)
+    if user:
+        return {"usage_count": 0, "remaining": 9999, "is_unlimited": True}
+    
+    client_ip = request.client.host
+    # Calculate start of today
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    usage_count = len(session.exec(select(UsageLog).where(
+        UsageLog.ip_address == client_ip, 
+        UsageLog.user_id == None,
+        UsageLog.created_at >= today_start
+    )).all())
+    
+    remaining = max(0, 2 - usage_count)
+    
+    return {"usage_count": usage_count, "remaining": remaining, "is_unlimited": False}
+
 @app.post("/analyze")
-async def analyze_resume(resume: UploadFile = File(...), job_description: str = Form(...)):
+async def analyze_resume(
+    request: Request,
+    resume: UploadFile = File(...), 
+    job_description: str = Form(...),
+    session: Session = Depends(get_session)
+):
+    # Usage Tracking Logic
+    user = await get_optional_user(request, session)
+    client_ip = request.client.host
+    
+    if not user:
+        # Check anonymous usage limits (Daily)
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        usage_count = len(session.exec(select(UsageLog).where(
+            UsageLog.ip_address == client_ip, 
+            UsageLog.user_id == None,
+            UsageLog.created_at >= today_start
+        )).all())
+        
+        if usage_count >= 2:
+            raise HTTPException(
+                status_code=403, 
+                detail="Daily free limit reached. Please login for unlimited access."
+            )
+        
+    # Log usage
+    new_log = UsageLog(
+        ip_address=client_ip, 
+        user_id=user.id if user else None,
+        action="tailor"
+    )
+    session.add(new_log)
+    session.commit()
+
     # Create a unique session ID
     session_id = str(uuid.uuid4())[:8]
     
@@ -264,6 +339,8 @@ async def analyze_resume(resume: UploadFile = File(...), job_description: str = 
         "sections": analysis_result.get("sections", []),
         "initial_score": analysis_result.get("initial_score", 0),
         "projected_score": analysis_result.get("projected_score", 0),
+        "company_name": analysis_result.get("company_name", "Unknown Company"),
+        "job_title": analysis_result.get("job_title", "Unknown Role"),
         "filename": temp_pdf_path, # Returning the temp path as the handle
         "temp_docx_path": docx_path 
     }

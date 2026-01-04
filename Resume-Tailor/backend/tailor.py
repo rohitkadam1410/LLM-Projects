@@ -27,6 +27,9 @@ class AnalysisResult(BaseModel):
     sections: List[SectionAnalysis]
     initial_score: int
     projected_score: int
+    company_name: str = "Unknown Company"
+    job_title: str = "Unknown Role"
+    score_reasoning: str = ""
 
 
 
@@ -227,6 +230,9 @@ def analyze_gaps(docx_path: str, job_description: str, pdf_path: str = None) -> 
        - If a header appears on one line (e.g., "Patents") but its content appears much later due to PDF column parsing, you MUST associate them. Scan the entire text to find the content that logically belongs to a header.
     3. NO SKIPPING: Do not omit any section found in the text. Provide specific gaps and suggestions for EVERYTHING.
     4. MISSING SECTIONS: If "Professional Summary" is completely absent, suggest ADDING it.
+    5. EXTRACT METADATA:
+       - company_name: Identify the company name from the JOB DESCRIPTION. If not found, use "Unknown Company".
+       - job_title: Identify the job role/title from the JOB DESCRIPTION. If not found, use "Unknown Role".
     
     CONSTRAINTS:
     1. STRICTLY PRESERVE the original document's textual hooks for 'target_text'. 
@@ -249,6 +255,9 @@ def analyze_gaps(docx_path: str, job_description: str, pdf_path: str = None) -> 
     {{
         "initial_score": <int>,
         "projected_score": <int>,
+        "score_reasoning": "<short explanation>",
+        "company_name": "<string>",
+        "job_title": "<string>",
         "sections": [
             {{
                 "section_name": "<Exact Header name from resume>",
@@ -284,9 +293,13 @@ def analyze_gaps(docx_path: str, job_description: str, pdf_path: str = None) -> 
     
     try:
         result = json.loads(response.choices[0].message.content)
+        # Ensure extracted metadata exists
+        result.setdefault("company_name", "Unknown Company")
+        result.setdefault("job_title", "Unknown Role")
+        
     except json.JSONDecodeError:
         print("Failed to decode JSON from LLM")
-        result = {"sections": []}
+        result = {"sections": [], "company_name": "Unknown", "job_title": "Unknown"}
 
     # 2. Separate Robust Scoring Step
     try:
