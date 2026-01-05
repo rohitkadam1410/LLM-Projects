@@ -27,6 +27,14 @@ backend/*_tailored.docx
 *.pdf
 *.docx
 
+# Debug Logs
+check_output.txt
+debug_output.txt
+debug_output_detailed.txt
+debug_reproduction.txt
+test_output.txt
+table_structure_analysis.txt
+
 # Environment
 .env
 .env.local
