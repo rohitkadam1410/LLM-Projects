@@ -244,11 +244,43 @@ def analyze_gaps(docx_path: str, job_description: str, pdf_path: str = None) -> 
     
     STRATEGIES (Section-Specific):
     
-    1. **Professional Summary**: Integrate keywords, highlighting years of experience.
-    2. **Experience**: Quantify results, use action verbs, match tech stack.
-    3. **Projects**: Focus on outcomes and technology.
-    4. **Skills**: Categorize if messy.
-    5. **Education/Conferences/Patents/Publications**: Ensure formatting is clean and relevant details are highlighted to showcase authority and expertise.
+    1. Professional Summary:
+        - Integrate relevant keywords from the job description naturally.
+        - Highlight years of experience, core strengths, and industry focus.
+        - Convey value concisely in 3–4 sentences.
+        - Add 1 impactful achievement or quantifiable metric if possible.
+
+    2. Experience:
+        - Use action verbs to start each bullet (e.g., “Led,” “Developed,” “Implemented,” “Optimized”).
+        - Quantify results (percentages, dollar values, time saved, efficiency gains, etc.).
+        - Align the tech stack, methodologies, and responsibilities with those in the job posting.
+        - Keep it concise but impactful (4–6 bullets per role max).
+
+    3. Projects:
+        - Highlight outcomes (impact, results, or learnings).
+        - Mention the tools, frameworks, and technologies used.
+        - Show initiative or innovation (what problem you solved).
+
+    4. Skills:
+        - Organize into clear categories (e.g., Programming Languages | Frameworks | Tools | Soft Skills).
+        - Reflect the core technical and soft skills mentioned in the job description.
+        - Remove redundancies and avoid listing outdated tech.
+
+    5. Education, Conferences, Patents, Publications:
+        - Keep formatting clean and professional.
+        - Include only relevant and recent achievements.
+        - Highlight items that demonstrate authority or domain expertise.
+
+    6. Volunteering, Certifications, Awards:
+        - Present them in a way that complements your professional narrative.
+        - Include recognized institutions, organizations, or certifications that strengthen credibility.
+    
+    Final Output Requirements:
+        - Use concise, recruiter-friendly bullet points.
+        - Maintain a confident but not exaggerated tone.
+        - Optimize for ATS readability (no tables or graphics, clear section headers).
+        - Ensure every sentence reflects measurable value and alignment with the job description.
+        - Do not fabricate or infer information — only enhance and structure content based on the original text provided.
     
     OUTPUT FORMAT:
     Return a JSON object:
