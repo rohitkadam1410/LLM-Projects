@@ -23,6 +23,10 @@ backend/temp_*.docx
 backend/*_tailored.pdf
 backend/*_tailored.docx
 
+# Global Ignore
+*.pdf
+*.docx
+
 # Environment
 .env
 .env.local
