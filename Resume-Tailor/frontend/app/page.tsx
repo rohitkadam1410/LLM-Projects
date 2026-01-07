@@ -13,6 +13,7 @@ interface EditSuggestion {
     new_content: string;
     action: string;
     rationale?: string;
+    status?: 'pending' | 'accepted' | 'rejected';
 }
 
 interface SectionAnalysis {
@@ -192,7 +193,12 @@ export default function TailorPage() {
 
             const data = await response.json();
             if (data.sections) {
-                setSections(data.sections);
+                // Initialize status for all edits
+                const initializedSections = data.sections.map((sec: any) => ({
+                    ...sec,
+                    edits: sec.edits.map((edit: any) => ({ ...edit, status: 'pending' }))
+                }));
+                setSections(initializedSections);
                 setUploadedFilename(data.filename);
                 setInitialScore(data.initial_score || 0);
                 setProjectedScore(data.projected_score || 0);
@@ -234,7 +240,11 @@ export default function TailorPage() {
                 },
                 body: JSON.stringify({
                     filename: uploadedFilename,
-                    sections: sections
+                    // Filter out rejected edits for the backend generator
+                    sections: sections.map(sec => ({
+                        ...sec,
+                        edits: sec.edits.filter(e => e.status !== 'rejected')
+                    }))
                 }),
             });
             const data = await response.json();
@@ -264,6 +274,15 @@ export default function TailorPage() {
         if (!sections) return;
         const newSections = [...sections];
         newSections[sectionIndex].edits[editIndex].new_content = newValue;
+        // If user edits text, essentially they are engaging with it, but we can leave status as is
+        // or auto-accept. Let's leave it manual for now.
+        setSections(newSections);
+    };
+
+    const handleSuggestionStatus = (sectionIndex: number, editIndex: number, newStatus: 'accepted' | 'rejected' | 'pending') => {
+        if (!sections) return;
+        const newSections = [...sections];
+        newSections[sectionIndex].edits[editIndex].status = newStatus;
         setSections(newSections);
     };
 
@@ -300,6 +319,7 @@ export default function TailorPage() {
             const tailoredText = sections.map(s => {
                 let text = s.original_text || "";
                 s.edits.forEach(edit => {
+                    if (edit.status === 'rejected') return; // Skip rejected edits
                     // Simple replacement for text reconstruction (approximate for display)
                     // In a real app we'd need better reconstruction logic or return it from backend
                     text = text.replace(edit.target_text, edit.new_content);
@@ -626,12 +646,47 @@ export default function TailorPage() {
                                                             return section.edits.length === 0 ?
                                                                 <p className="italic text-slate-400">No edits suggested.</p> :
                                                                 section.edits.map((edit, editIdx) => (
-                                                                    <div key={editIdx} className="mb-4 border-b pb-4 last:border-0">
-                                                                        <div className="line-through decoration-red-400 decoration-2 opacity-60 text-slate-500 mb-1">{edit.target_text}</div>
+                                                                    <div key={editIdx} className={`mb-4 border-b pb-4 last:border-0 rounded-lg p-3 transition-colors ${edit.status === 'accepted' ? 'bg-green-50 border-green-100' : edit.status === 'rejected' ? 'bg-slate-100 opacity-60' : 'bg-white'}`}>
+                                                                        <div className="flex justify-between items-start mb-2">
+                                                                            <span className={`text-xs font-bold uppercase tracking-wider ${edit.status === 'accepted' ? 'text-green-600' : edit.status === 'rejected' ? 'text-slate-500' : 'text-indigo-500'}`}>
+                                                                                {edit.status === 'accepted' ? '✓ Accepted' : edit.status === 'rejected' ? '✕ Rejected' : 'Suggestion'}
+                                                                            </span>
+                                                                            <div className="flex space-x-1">
+                                                                                {edit.status !== 'accepted' && (
+                                                                                    <button
+                                                                                        onClick={() => handleSuggestionStatus(sectionIdx, editIdx, 'accepted')}
+                                                                                        className="p-1 hover:bg-green-100 text-green-600 rounded"
+                                                                                        title="Accept"
+                                                                                    >
+                                                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" /></svg>
+                                                                                    </button>
+                                                                                )}
+                                                                                {edit.status !== 'rejected' && (
+                                                                                    <button
+                                                                                        onClick={() => handleSuggestionStatus(sectionIdx, editIdx, 'rejected')}
+                                                                                        className="p-1 hover:bg-red-100 text-red-500 rounded"
+                                                                                        title="Reject"
+                                                                                    >
+                                                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                                                                                    </button>
+                                                                                )}
+                                                                                {edit.status !== 'pending' && (
+                                                                                    <button
+                                                                                        onClick={() => handleSuggestionStatus(sectionIdx, editIdx, 'pending')}
+                                                                                        className="p-1 hover:bg-slate-200 text-slate-400 rounded"
+                                                                                        title="Reset"
+                                                                                    >
+                                                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                                                                                    </button>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="line-through decoration-red-400 decoration-2 opacity-60 text-slate-500 mb-1 text-xs">{edit.target_text}</div>
                                                                         <textarea
-                                                                            className="w-full p-2 bg-green-50 border border-green-200 rounded text-green-800 text-sm focus:ring-2 focus:ring-green-500/20 outline-none"
+                                                                            className={`w-full p-2 border rounded text-sm focus:ring-2 outline-none ${edit.status === 'rejected' ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-green-50 border-green-200 text-green-800 focus:ring-green-500/20'}`}
                                                                             value={edit.new_content}
                                                                             onChange={(e) => handleUpdateSuggestion(sectionIdx, editIdx, e.target.value)}
+                                                                            disabled={edit.status === 'rejected'}
                                                                         />
                                                                     </div>
                                                                 ));
@@ -746,7 +801,7 @@ export default function TailorPage() {
                                                     let content = section.original_text || "";
                                                     if (section.edits) {
                                                         section.edits.forEach(edit => {
-                                                            if (edit.target_text && edit.new_content) {
+                                                            if (edit.target_text && edit.new_content && edit.status !== 'rejected') {
                                                                 content = content.split(edit.target_text).join(edit.new_content);
                                                             }
                                                         });
