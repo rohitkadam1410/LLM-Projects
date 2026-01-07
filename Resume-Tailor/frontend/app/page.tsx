@@ -203,9 +203,13 @@ export default function TailorPage() {
                 setInitialScore(data.initial_score || 0);
                 setProjectedScore(data.projected_score || 0);
 
-                // Auto-fill metadata
-                if (data.company_name && data.company_name !== "Unknown Company") setCompanyName(data.company_name);
-                if (data.job_title && data.job_title !== "Unknown Role") setJobRole(data.job_title);
+                // Auto-fill metadata (only if not already set or if it was unknown)
+                if (data.company_name && data.company_name !== "Unknown Company") {
+                    if (!companyName || companyName === "Unknown Company") setCompanyName(data.company_name);
+                }
+                if (data.job_title && data.job_title !== "Unknown Role") {
+                    if (!jobRole || jobRole === "Unknown Role") setJobRole(data.job_title);
+                }
 
                 // Increment local usage count to reflect the new analysis
                 if (!isAuthenticated) {
@@ -568,6 +572,30 @@ export default function TailorPage() {
                                         </p>
                                     </div>
                                 )}
+
+                                {/* Metadata Inputs (Auto-filled or Manual) */}
+                                <div className="grid grid-cols-2 gap-4 mt-6 border-t border-slate-100 pt-4">
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1 ml-1">Company Name</label>
+                                        <input
+                                            type="text"
+                                            value={companyName}
+                                            onChange={(e) => setCompanyName(e.target.value)}
+                                            className="w-full p-3 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none text-slate-700 placeholder:text-slate-400"
+                                            placeholder="e.g. Acme Corp (Optional)"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-1 ml-1">Job Role</label>
+                                        <input
+                                            type="text"
+                                            value={jobRole}
+                                            onChange={(e) => setJobRole(e.target.value)}
+                                            className="w-full p-3 rounded-xl border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none text-slate-700 placeholder:text-slate-400"
+                                            placeholder="e.g. Product Manager (Optional)"
+                                        />
+                                    </div>
+                                </div>
                             </div>
 
                             {/* Action Area: Analyze */}

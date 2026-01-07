@@ -232,7 +232,8 @@ def analyze_gaps(docx_path: str, job_description: str, pdf_path: str = None) -> 
     CRITICAL STRUCTURE INSTRUCTIONS:
     1.  **EXHAUSTIVE ANALYSIS**: Analyze EVERY section (Summary, Experience, Projects, Skills, Education, etc.).
     2.  **SECTION DISCOVERY**: Scan the ENTIRE text. Match headers to their content even if separated by formatting.
-    3.  **MISSING SECTIONS**: If "Professional Summary" is missing, suggest adding it.
+        -   **IMPLICIT SUMMARY**: If you find a bio/intro paragraph at the start (after contact info) *without* a header, TREAT IT as "Professional Summary". Do NOT say it is missing.
+    3.  **MISSING SECTIONS**: If "Professional Summary" is completely absent, suggest adding it. If the *content* is there but the *header* is missing, suggest adding the Header.
     4.  **METADATA**: Extract 'company_name' and 'job_title' from the Job Description. Use "Unknown" if not found.
     
     CONSTRAINTS:
